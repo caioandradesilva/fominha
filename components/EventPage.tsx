@@ -426,7 +426,7 @@ function PlateSheet({
   const [preview, setPreview] = useState<string | null>(null);
   const [photoPath, setPhotoPath] = useState<string | undefined>();
   const [ai, setAi] = useState<AiResult | undefined>();
-  const [aiFailed, setAiFailed] = useState(false);
+  const [aiFailed, setAiFailed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -438,7 +438,7 @@ function PlateSheet({
     if (!file) return;
     setError(null);
     setAi(undefined);
-    setAiFailed(false);
+    setAiFailed(null);
     setStep("counting");
     try {
       const blob = await compressPhoto(file);
@@ -447,6 +447,8 @@ function PlateSheet({
       const supabase = getSupabase();
       const { error: upErr } = await supabase.storage.from("plates").upload(path, blob, { contentType: "image/jpeg" });
       if (upErr) throw new Error("upload");
+      // Garante que o servidor receba uma sessão válida (renova o token se tiver expirado)
+      await supabase.auth.getSession();
       setPhotoPath(path);
 
       const res = await fetch("/api/contar", {
@@ -454,14 +456,18 @@ function PlateSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eventId, path }),
       });
-      if (!res.ok) throw new Error("ai");
+      if (!res.ok) {
+        const info = (await res.json().catch(() => ({}))) as { code?: string };
+        throw new Error(`ai:${res.status}:${info.code ?? "?"}`);
+      }
       const result = (await res.json()) as AiResult;
       setAi(result);
       setCount(Math.max(1, Math.min(60, result.total || 1)));
     } catch (e) {
       // Sem internet ou IA fora do ar: segue no ajuste manual (a foto fica salva se o upload deu certo)
-      setAiFailed(true);
-      if ((e as Error).message === "upload") setPhotoPath(undefined);
+      const msg = (e as Error).message || "erro";
+      setAiFailed(msg);
+      if (msg === "upload") setPhotoPath(undefined);
     }
     setStep("review");
   }
@@ -582,6 +588,7 @@ function PlateSheet({
             {aiFailed && (
               <p className="rounded-xl bg-gold-soft px-3 py-2 text-[13px] text-[#5c3e00]">
                 Não consegui contar agora. Ajuste o número manualmente.
+                <span className="mt-1 block text-[11px] opacity-70">Código: {aiFailed}</span>
               </p>
             )}
             {adjusted && <p className="text-center text-xs text-muted">Ajustado de {ai.total} para {count} · o grupo vê o ajuste</p>}

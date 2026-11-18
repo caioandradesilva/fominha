@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { countPieces } from "@/lib/counting";
+import { CountError, countPieces } from "@/lib/counting";
 import { supabaseKey, supabaseUrl } from "@/lib/supabase/env";
 import { createServerSupabase } from "@/lib/supabase/server";
 
@@ -25,27 +25,31 @@ export async function POST(request: Request) {
     ? await supabase.auth.getUser(bearer.slice(7))
     : await supabase.auth.getUser();
   const user = auth.user;
-  if (!user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "Não autenticado", code: "auth" }, { status: 401 });
 
   // Só fotos do próprio usuário, dentro da pasta do evento
   if (!body.path.startsWith(`${body.eventId}/${user.id}/`)) {
-    return NextResponse.json({ error: "Foto inválida" }, { status: 403 });
+    return NextResponse.json({ error: "Foto inválida", code: "path" }, { status: 403 });
   }
 
   // As regras do banco garantem que o usuário é do grupo e o evento está ao vivo
   const { data: event } = await supabase.from("events").select("status").eq("id", body.eventId).maybeSingle();
-  if (!event) return NextResponse.json({ error: "Evento não encontrado" }, { status: 404 });
-  if (event.status !== "live") return NextResponse.json({ error: "O evento não está ao vivo" }, { status: 409 });
+  if (!event) return NextResponse.json({ error: "Evento não encontrado", code: "event" }, { status: 404 });
+  if (event.status !== "live") return NextResponse.json({ error: "O evento não está ao vivo", code: "not_live" }, { status: 409 });
 
   const { data: file, error: downloadError } = await supabase.storage.from("plates").download(body.path);
-  if (downloadError || !file) return NextResponse.json({ error: "Foto não encontrada" }, { status: 404 });
+  if (downloadError || !file) {
+    console.error("contar: foto não encontrada", body.path, downloadError);
+    return NextResponse.json({ error: "Foto não encontrada", code: "download" }, { status: 404 });
+  }
 
   const type = file.type === "image/png" || file.type === "image/webp" ? file.type : "image/jpeg";
   try {
     const result = await countPieces(Buffer.from(await file.arrayBuffer()), type);
     return NextResponse.json(result);
   } catch (e) {
-    console.error("contar: falha na IA", e);
-    return NextResponse.json({ error: "Não consegui contar agora" }, { status: 502 });
+    const code = e instanceof CountError ? e.code : "unknown";
+    console.error("contar: falha na IA", code, e);
+    return NextResponse.json({ error: "Não consegui contar agora", code, detail: (e as Error).message.slice(0, 200) }, { status: 502 });
   }
 }
