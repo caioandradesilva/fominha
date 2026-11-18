@@ -25,7 +25,7 @@ export function Welcome() {
   }
 
   return (
-    <main className="flex min-h-dvh flex-col bg-tomato text-white">
+    <main className="flex min-h-full flex-col bg-tomato text-white">
       <section className="flex flex-1 flex-col justify-center gap-7 px-7 pt-10 pb-14">
         <div className="relative h-[140px] w-[140px]">
           <PlateMark size={140} plate="#ffffff" rim="#d33d15" />

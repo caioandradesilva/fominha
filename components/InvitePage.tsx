@@ -70,7 +70,7 @@ export function InviteScreen() {
 
   if (preview === null) {
     return (
-      <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-4 px-7 text-center">
+      <main className="mx-auto flex min-h-full max-w-md flex-col items-center justify-center gap-4 px-7 text-center">
         <PlateMark size={96} plate="#efeae3" rim="#d8d1c8" />
         <h1 className="font-display text-2xl font-extrabold">Convite inválido</h1>
         <p className="text-muted">Esse link não existe mais. Peça um novo para quem te convidou.</p>
@@ -84,7 +84,7 @@ export function InviteScreen() {
   const count = Number(preview.member_count);
 
   return (
-    <main className="flex min-h-dvh flex-col bg-tomato text-white">
+    <main className="flex min-h-full flex-col bg-tomato text-white">
       <section className="flex flex-1 flex-col items-center justify-center gap-4 px-7 pt-10 pb-8 text-center">
         <PlateMark size={88} plate="#ffffff" rim="#d33d15" />
         <span className="text-base text-tomato-soft">

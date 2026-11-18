@@ -16,6 +16,8 @@ export const viewport: Viewport = {
   themeColor: "#d33d15",
   width: "device-width",
   initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
 };
 
@@ -23,7 +25,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="pt-BR" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
-        <AuthProvider>{children}</AuthProvider>
+        <div id="app">
+          <AuthProvider>{children}</AuthProvider>
+        </div>
       </body>
     </html>
   );

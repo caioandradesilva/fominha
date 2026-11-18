@@ -17,7 +17,7 @@ export function SignedIn({ children }: { children: (profile: Profile) => ReactNo
 
 export function Splash() {
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-tomato">
+    <main className="flex min-h-full items-center justify-center bg-tomato">
       <PlateMark size={88} plate="#ffffff" rim="#d33d15" title="Carregando" />
     </main>
   );
@@ -25,7 +25,7 @@ export function Splash() {
 
 function MissingEnv() {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-3 px-6">
+    <main className="mx-auto flex min-h-full max-w-md flex-col justify-center gap-3 px-6">
       <h1 className="font-display text-2xl font-extrabold">Falta configurar o Supabase</h1>
       <p className="text-muted">
         Defina <code>NEXT_PUBLIC_SUPABASE_URL</code> e{" "}

@@ -27,7 +27,7 @@ export function Avatar({ id, name, size = 40 }: { id: string; name: string; size
 /** Coluna central com largura de celular, usada por todas as telas. */
 export function Screen({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <main className={`mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-5 pt-5 pb-10 ${className}`}>
+    <main className={`mx-auto flex min-h-full w-full max-w-md flex-col gap-5 px-5 pt-5 pb-10 ${className}`}>
       {children}
     </main>
   );
