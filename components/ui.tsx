@@ -71,3 +71,18 @@ export async function shareLink(url: string, text: string): Promise<"shared" | "
     return "failed";
   }
 }
+
+export function StatusPill({ status }: { status: "scheduled" | "live" | "closed" }) {
+  if (status === "live")
+    return (
+      <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-tomato-soft px-2.5 py-1 text-[11px] font-bold text-tomato-dark">
+        <span className="h-2 w-2 rounded-full bg-tomato" />
+        AO VIVO
+      </span>
+    );
+  return (
+    <span className="shrink-0 rounded-full bg-chip px-2.5 py-1 text-[11px] font-bold text-[#4a443e]">
+      {status === "closed" ? "ENCERRADO" : "MARCADO"}
+    </span>
+  );
+}

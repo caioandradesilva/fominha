@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { SignedIn, Splash } from "@/components/SignedIn";
-import { Avatar, BackLink, Screen, primaryButton, secondaryButton, shareLink } from "@/components/ui";
+import { Avatar, BackLink, Screen, StatusPill, primaryButton, secondaryButton, shareLink } from "@/components/ui";
 import type { Profile } from "@/lib/auth";
+import { formatWhen } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
 
 type Group = { id: string; name: string; invite_code: string; created_at: string };
@@ -110,9 +112,9 @@ function GroupLoader({ profile }: { profile: Profile }) {
         <button onClick={invite} className={primaryButton + " !h-12 text-[15px]"}>
           Convidar
         </button>
-        <button disabled className={secondaryButton} title="Chega na próxima sessão">
+        <Link href={`/g/${group.id}/novo-evento`} className={secondaryButton}>
           Novo evento
-        </button>
+        </Link>
       </div>
       {shareMsg && <p className="-mt-2 text-center text-sm break-all text-muted">{shareMsg}</p>}
 
@@ -120,15 +122,25 @@ function GroupLoader({ profile }: { profile: Profile }) {
         <h2 className="text-[15px] font-bold">Eventos</h2>
         {events.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-line-strong px-4 py-4 text-sm text-muted">
-            Nenhum evento ainda. Criar evento chega na próxima sessão de desenvolvimento.
+            Nenhum evento ainda. Marque o próximo rodízio em &quot;Novo evento&quot;.
           </p>
         ) : (
           <div className="rounded-2xl border border-line bg-white px-4">
             {events.map((ev, i) => (
-              <div key={ev.id} className={`flex h-13 items-center ${i < events.length - 1 ? "border-b border-[#f0ece6]" : ""}`}>
-                <span className="flex-1 text-sm font-semibold">{ev.name}</span>
-                <span className="text-xs text-muted">{ev.status === "live" ? "Ao vivo" : ev.status === "closed" ? "Encerrado" : "Marcado"}</span>
-              </div>
+              <Link
+                key={ev.id}
+                href={`/e/${ev.id}`}
+                className={`flex items-center gap-3 py-3 ${i < events.length - 1 ? "border-b border-[#f0ece6]" : ""}`}
+              >
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-sm font-semibold">{ev.name}</span>
+                  <span className="truncate text-xs text-muted">
+                    {formatWhen(ev.starts_at)}
+                    {ev.restaurant_name ? ` · ${ev.restaurant_name}` : ""}
+                  </span>
+                </div>
+                <StatusPill status={ev.status} />
+              </Link>
             ))}
           </div>
         )}
