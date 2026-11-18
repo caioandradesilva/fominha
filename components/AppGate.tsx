@@ -13,7 +13,7 @@ export function AppGate() {
 }
 
 function Gate() {
-  const { loading, user, profile } = useAuth();
+  const { loading, user, profile, reload } = useAuth();
 
   if (loading) {
     return (
@@ -23,7 +23,7 @@ function Gate() {
     );
   }
 
-  if (!user || !profile) return <Welcome />;
+  if (!user || !profile) return <Welcome onSignedIn={reload} />;
   return <Home profile={profile} />;
 }
 

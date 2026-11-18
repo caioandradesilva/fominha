@@ -5,7 +5,7 @@ import { PlateMark, Wordmark } from "@/components/Logo";
 import { getSupabase } from "@/lib/supabase/client";
 
 /** Tela "Entrar" da versão zero: só o apelido (login anônimo do Supabase). */
-export function Welcome() {
+export function Welcome({ onSignedIn }: { onSignedIn: () => Promise<void> }) {
   const [nickname, setNickname] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +18,10 @@ export function Welcome() {
     setError(null);
     const supabase = getSupabase();
 
-    const { data, error: authError } = await supabase.auth.signInAnonymously();
+    const current = (await supabase.auth.getUser()).data.user;
+    const { data, error: authError } = current
+      ? { data: { user: current }, error: null }
+      : await supabase.auth.signInAnonymously();
     if (authError || !data.user) {
       setError("Não deu para entrar agora. Tente de novo em instantes.");
       setBusy(false);
@@ -33,7 +36,7 @@ export function Welcome() {
       setBusy(false);
       return;
     }
-    // A sessão nova dispara o useAuth da página, que troca para o Início.
+    await onSignedIn();
   }
 
   return (
