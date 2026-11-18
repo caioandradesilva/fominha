@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Fominha
 
-## Getting Started
+Quem come mais no rodízio? Agora tem placar.
 
-First, run the development server:
+Versão zero: web app (PWA) para o rodízio de teste de 26 nov 2026.
+Plano, decisões e diário de progresso ficam no PRD do projeto.
+
+## Stack
+
+- Next.js 16 (App Router) + TypeScript + Tailwind CSS 4
+- Supabase: Postgres, Auth (login anônimo com apelido), Storage, Realtime
+- API de visão da Anthropic para contar as peças (rota do servidor)
+- Vercel para hospedagem
+
+## Rodar localmente
 
 ```bash
+cp .env.example .env.local   # preencha com as chaves do Supabase
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Banco de dados
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+O esquema está em `supabase/migrations/`. Cada arquivo é rodado uma vez, em ordem,
+no SQL Editor do Supabase.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Estrutura
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+app/                 páginas e rotas (App Router)
+components/          telas e componentes (Logo, Welcome, Home…)
+lib/supabase/        clientes do Supabase (navegador e servidor)
+proxy.ts             renova a sessão a cada navegação
+supabase/migrations  tabelas, regras de acesso (RLS), bucket de fotos
+public/icons         ícones do PWA
+```

@@ -1,26 +1,38 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/bricolage-grotesque";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Paleta do Fominha (ver canvas "Logo provisória") */
+@theme {
+  --color-tomato: #d33d15;
+  --color-tomato-dark: #a82e0e;
+  --color-tomato-soft: #fbe3da;
+  --color-gold: #f5b529;
+  --color-gold-soft: #fdf0d2;
+  --color-ink: #1a1714;
+  --color-muted: #6b645c;
+  --color-cream: #faf8f5;
+  --color-line: #e7e2db;
+  --color-line-strong: #d8d1c8;
+  --color-chip: #efeae3;
+  --color-ok: #1e5b2e;
+  --color-ok-soft: #e3f1e6;
+
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Inter Variable", sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Inputs sem zoom automático no iOS (fonte >= 16px) */
+input,
+button,
+select,
+textarea {
+  font: inherit;
 }
