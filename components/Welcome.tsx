@@ -2,10 +2,11 @@
 
 import { useState, type FormEvent } from "react";
 import { PlateMark, Wordmark } from "@/components/Logo";
-import { getSupabase } from "@/lib/supabase/client";
+import { useAuth } from "@/lib/auth";
 
 /** Tela "Entrar" da versão zero: só o apelido (login anônimo do Supabase). */
-export function Welcome({ onSignedIn }: { onSignedIn: () => Promise<void> }) {
+export function Welcome() {
+  const { signInWithNickname } = useAuth();
   const [nickname, setNickname] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -16,27 +17,11 @@ export function Welcome({ onSignedIn }: { onSignedIn: () => Promise<void> }) {
     if (!name) return;
     setBusy(true);
     setError(null);
-    const supabase = getSupabase();
-
-    const current = (await supabase.auth.getUser()).data.user;
-    const { data, error: authError } = current
-      ? { data: { user: current }, error: null }
-      : await supabase.auth.signInAnonymously();
-    if (authError || !data.user) {
-      setError("Não deu para entrar agora. Tente de novo em instantes.");
+    const result = await signInWithNickname(name);
+    if (!result.ok) {
+      setError(result.error);
       setBusy(false);
-      return;
     }
-
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .upsert({ id: data.user.id, nickname: name });
-    if (profileError) {
-      setError("Entrou, mas não salvou o apelido. Tente de novo.");
-      setBusy(false);
-      return;
-    }
-    await onSignedIn();
   }
 
   return (

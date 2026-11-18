@@ -1,30 +1,26 @@
 "use client";
 
-import { Home } from "@/components/Home";
+import type { ReactNode } from "react";
 import { PlateMark } from "@/components/Logo";
 import { Welcome } from "@/components/Welcome";
+import { useAuth, type Profile } from "@/lib/auth";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
-import { useAuth } from "@/lib/useAuth";
 
-/** Decide o que mostrar: tela de entrada, carregando ou o Início. */
-export function AppGate() {
+/** Mostra o conteúdo só para quem já entrou; senão, a tela de entrada. */
+export function SignedIn({ children }: { children: (profile: Profile) => ReactNode }) {
+  const { loading, user, profile } = useAuth();
   if (!hasSupabaseEnv) return <MissingEnv />;
-  return <Gate />;
+  if (loading) return <Splash />;
+  if (!user || !profile) return <Welcome />;
+  return <>{children(profile)}</>;
 }
 
-function Gate() {
-  const { loading, user, profile, reload } = useAuth();
-
-  if (loading) {
-    return (
-      <main className="flex min-h-dvh items-center justify-center bg-tomato">
-        <PlateMark size={88} plate="#ffffff" rim="#d33d15" title="Carregando" />
-      </main>
-    );
-  }
-
-  if (!user || !profile) return <Welcome onSignedIn={reload} />;
-  return <Home profile={profile} />;
+export function Splash() {
+  return (
+    <main className="flex min-h-dvh items-center justify-center bg-tomato">
+      <PlateMark size={88} plate="#ffffff" rim="#d33d15" title="Carregando" />
+    </main>
+  );
 }
 
 function MissingEnv() {
