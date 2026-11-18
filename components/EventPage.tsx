@@ -67,22 +67,28 @@ function EventView({ profile }: { profile: Profile }) {
       setMembers(r.members);
       setEntries(r.entries);
     });
-    const channel = supabase
-      .channel(`event-${id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "entries", filter: `event_id=eq.${id}` }, () => {
-        fetchEntries(id).then((e) => active && setEntries(e));
-      })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "events", filter: `id=eq.${id}` }, () => {
-        fetchEvent(id).then((r) => {
-          if (!active) return;
-          setEvent(r.event);
-          setEntries(r.entries);
-        });
-      })
-      .subscribe();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    // O canal ao vivo precisa do token do usuário para as regras de acesso valerem.
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!active) return;
+      if (data.session) await supabase.realtime.setAuth(data.session.access_token);
+      channel = supabase
+        .channel(`event-${id}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "entries", filter: `event_id=eq.${id}` }, () => {
+          fetchEntries(id).then((e) => active && setEntries(e));
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "events", filter: `id=eq.${id}` }, () => {
+          fetchEvent(id).then((r) => {
+            if (!active) return;
+            setEvent(r.event);
+            setEntries(r.entries);
+          });
+        })
+        .subscribe();
+    });
     return () => {
       active = false;
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [id]);
 
