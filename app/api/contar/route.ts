@@ -4,7 +4,7 @@ import { CountError, countPieces } from "@/lib/counting";
 import { supabaseKey, supabaseUrl } from "@/lib/supabase/env";
 import { createServerSupabase } from "@/lib/supabase/server";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 /** Recebe o caminho da foto já enviada ao Storage e devolve a contagem da IA. */
 export async function POST(request: Request) {

@@ -53,20 +53,34 @@ export class CountError extends Error {
   }
 }
 
-/** Manda a foto para a API de visão e devolve a contagem sugerida. */
-export async function countPieces(image: Buffer, mediaType: "image/jpeg" | "image/png" | "image/webp"): Promise<CountResult> {
-  const client = new Anthropic(); // usa ANTHROPIC_API_KEY do ambiente
+/** Tenta ler o JSON da resposta, mesmo se vier com texto ou cercas de código em volta. */
+function parseAnswer(text: string): RawAnswer | null {
+  try {
+    return JSON.parse(text) as RawAnswer;
+  } catch {
+    const first = text.indexOf("{");
+    const last = text.lastIndexOf("}");
+    if (first === -1 || last <= first) return null;
+    try {
+      return JSON.parse(text.slice(first, last + 1)) as RawAnswer;
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function askOnce(client: Anthropic, image: string, mediaType: "image/jpeg" | "image/png" | "image/webp", maxTokens: number) {
   let message;
   try {
     message = await client.messages.create({
       model: MODEL,
-      max_tokens: 600,
+      max_tokens: maxTokens,
       output_config: { format: { type: "json_schema", schema: SCHEMA } },
       messages: [
         {
           role: "user",
           content: [
-            { type: "image", source: { type: "base64", media_type: mediaType, data: image.toString("base64") } },
+            { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
             { type: "text", text: PROMPT },
           ],
         },
@@ -75,13 +89,30 @@ export async function countPieces(image: Buffer, mediaType: "image/jpeg" | "imag
   } catch (e) {
     throw new CountError("ai_api", (e as Error).message);
   }
-
   const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+  const raw = parseAnswer(text);
+  if (!raw) {
+    // stop_reason diz o porquê: max_tokens (cortou), refusal (recusou) etc.
+    throw new CountError(
+      "ai_format",
+      `stop=${message.stop_reason} blocks=${message.content.map((b) => b.type).join(",")} text=${text.slice(0, 100)}`,
+    );
+  }
+  return raw;
+}
+
+/** Manda a foto para a API de visão e devolve a contagem sugerida. */
+export async function countPieces(image: Buffer, mediaType: "image/jpeg" | "image/png" | "image/webp"): Promise<CountResult> {
+  const client = new Anthropic({ maxRetries: 2 }); // usa ANTHROPIC_API_KEY do ambiente
+  const data = image.toString("base64");
   let raw: RawAnswer;
   try {
-    raw = JSON.parse(text) as RawAnswer;
-  } catch {
-    throw new CountError("ai_format", `Resposta fora do formato: ${text.slice(0, 120)}`);
+    raw = await askOnce(client, data, mediaType, 2000);
+  } catch (e) {
+    // Resposta fora do formato: tenta mais uma vez com mais espaço antes de desistir
+    if (!(e instanceof CountError) || e.code !== "ai_format") throw e;
+    console.warn("contar: 1ª resposta fora do formato, tentando de novo", e.message);
+    raw = await askOnce(client, data, mediaType, 4000);
   }
 
   const total = Math.max(0, Math.min(200, Math.round(Number(raw.total) || 0)));

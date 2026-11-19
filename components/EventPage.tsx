@@ -457,8 +457,9 @@ function PlateSheet({
         body: JSON.stringify({ eventId, path }),
       });
       if (!res.ok) {
-        const info = (await res.json().catch(() => ({}))) as { code?: string };
-        throw new Error(`ai:${res.status}:${info.code ?? "?"}`);
+        const info = (await res.json().catch(() => ({}))) as { code?: string; detail?: string };
+        const stop = info.detail?.match(/stop=(\w+)/)?.[1];
+        throw new Error(`ai:${res.status}:${info.code ?? "?"}${stop ? `:${stop}` : ""}`);
       }
       const result = (await res.json()) as AiResult;
       setAi(result);
