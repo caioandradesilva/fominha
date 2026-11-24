@@ -4,7 +4,9 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { PlateMark, Wordmark } from "@/components/Logo";
 import { getSupabase } from "@/lib/supabase/client";
 
-const INSTAGRAM = "https://instagram.com/rodizium";
+const INSTAGRAM = "https://instagram.com/rodizium.app";
+const INSTAGRAM_HANDLE = "@rodizium.app";
+const UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 const RODIZIOS = ["Sushi", "Pizza", "Churrasco", "Hambúrguer"];
 
 /* ---------- Prato interativo do topo ---------- */
@@ -340,19 +342,25 @@ function personaFor(n: number) {
 
 type Status = "idle" | "sending" | "done" | "already" | "error";
 
-function normalizeContact(raw: string): string | null {
-  const value = raw.trim();
-  if (value.includes("@")) return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value.toLowerCase() : null;
-  const digits = value.replace(/\D/g, "");
-  return digits.length >= 10 && digits.length <= 13 ? digits : null;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** (48) 99999-9999 enquanto a pessoa digita */
+function formatPhone(raw: string): string {
+  const d = raw.replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 2) return d.length ? `(${d}` : "";
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
 export function Landing() {
   const [record, setRecord] = useState(30);
   const [recordTouched, setRecordTouched] = useState(false);
   const [name, setName] = useState("");
-  const [contact, setContact] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [city, setCity] = useState("");
+  const [uf, setUf] = useState("");
   const [picked, setPicked] = useState<string[]>(["Sushi"]);
   const [trap, setTrap] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -371,9 +379,14 @@ export function Landing() {
     setError(null);
     if (trap) return setStatus("done");
     const cleanName = name.trim();
-    const cleanContact = normalizeContact(contact);
-    if (!cleanName) return setError("Como a gente te chama?");
-    if (!cleanContact) return setError("Coloca um e-mail ou WhatsApp com DDD.");
+    const cleanEmail = email.trim().toLowerCase();
+    const phoneDigits = phone.replace(/\D/g, "");
+    const cleanCity = city.trim();
+    if (cleanName.split(/\s+/).length < 2) return setError("Coloca seu nome e sobrenome.");
+    if (!EMAIL_RE.test(cleanEmail)) return setError("Confere o e-mail: parece que falta alguma coisa.");
+    if (phoneDigits && (phoneDigits.length < 10 || phoneDigits.length > 11)) return setError("Telefone com DDD, por favor. Ou deixa em branco.");
+    if (cleanCity.length < 2) return setError("Em qual cidade você mora?");
+    if (!uf) return setError("Escolhe o estado.");
 
     setStatus("sending");
     const params = new URLSearchParams(window.location.search);
@@ -382,8 +395,10 @@ export function Landing() {
       .from("waitlist")
       .insert({
         name: cleanName.slice(0, 60),
-        contact: cleanContact,
-        city: city.trim().slice(0, 60) || null,
+        email: cleanEmail,
+        phone: phoneDigits || null,
+        city: cleanCity.slice(0, 60),
+        state: uf,
         rodizios: picked,
         claimed_record: recordTouched ? record : null,
         source,
@@ -538,25 +553,44 @@ export function Landing() {
                 Manda o link pro grupo do rodízio: a disputa só tem graça com todo mundo.
               </p>
               <a href={INSTAGRAM} className="mt-2 flex h-13 w-full items-center justify-center rounded-2xl bg-tomato text-base font-semibold text-white">
-                Seguir @rodizium
+                Seguir {INSTAGRAM_HANDLE}
               </a>
             </div>
           ) : (
             <form onSubmit={submit} noValidate className="flex flex-col gap-4 rounded-[32px] bg-white p-6 text-ink md:p-8">
               <label className="flex flex-col gap-2">
-                <span className="text-sm font-semibold">Seu nome</span>
-                <input className={field} value={name} onChange={(e) => setName(e.target.value)} autoComplete="given-name" maxLength={60} placeholder="Como te chamam no grupo" />
+                <span className="text-sm font-semibold">Nome completo</span>
+                <input className={field} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={60} placeholder="Nome e sobrenome" />
               </label>
               <label className="flex flex-col gap-2">
-                <span className="text-sm font-semibold">E-mail ou WhatsApp</span>
-                <input className={field} value={contact} onChange={(e) => setContact(e.target.value)} autoComplete="email" maxLength={120} placeholder="e-mail ou (48) 99999-9999" />
+                <span className="text-sm font-semibold">E-mail</span>
+                <input className={field} type="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" maxLength={120} placeholder="voce@email.com" />
               </label>
               <label className="flex flex-col gap-2">
                 <span className="text-sm font-semibold">
-                  Cidade <span className="font-normal text-muted">(opcional)</span>
+                  Telefone <span className="font-normal text-muted">(opcional)</span>
                 </span>
-                <input className={field} value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" maxLength={60} placeholder="Florianópolis" />
+                <input className={field} type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} autoComplete="tel-national" placeholder="(48) 99999-9999" />
               </label>
+              <div className="grid grid-cols-[1fr_96px] gap-3">
+                <label className="flex min-w-0 flex-col gap-2">
+                  <span className="text-sm font-semibold">Cidade</span>
+                  <input className={field} value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" maxLength={60} placeholder="Florianópolis" />
+                </label>
+                <label className="flex flex-col gap-2">
+                  <span className="text-sm font-semibold">Estado</span>
+                  <select className={`${field} appearance-none px-3 ${uf ? "" : "text-[#a39a8f]"}`} value={uf} onChange={(e) => setUf(e.target.value)} autoComplete="address-level1">
+                    <option value="" disabled>
+                      UF
+                    </option>
+                    {UFS.map((u) => (
+                      <option key={u} value={u} className="text-ink">
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <fieldset>
                 <legend className="mb-2 text-sm font-semibold">Seus rodízios</legend>
                 <div className="flex flex-wrap gap-2">
@@ -604,8 +638,13 @@ export function Landing() {
       <footer className="bg-ink text-[#a39a8f]">
         <div className="mx-auto flex max-w-6xl items-center justify-between border-t border-white/10 px-6 py-6 text-sm">
           <span>© 2026 Rodizium</span>
-          <a href={INSTAGRAM} className="font-semibold text-white">
-            @rodizium
+          <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 font-semibold text-white hover:text-gold">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="3" width="18" height="18" rx="5" />
+              <circle cx="12" cy="12" r="4" />
+              <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+            </svg>
+            {INSTAGRAM_HANDLE}
           </a>
         </div>
       </footer>
