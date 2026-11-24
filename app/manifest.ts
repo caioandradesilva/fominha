@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Fominha",
-    short_name: "Fominha",
+    name: "Rodizium",
+    short_name: "Rodizium",
     description: "Quem come mais no rodízio? Agora tem placar.",
     start_url: "/",
     display: "standalone",

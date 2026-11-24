@@ -8,7 +8,7 @@ type MarkProps = {
   title?: string;
 };
 
-/** O prato com uma mordida: o "o" do Fominha e o ícone do app. */
+/** O prato com uma mordida: o "o" do Rodizium e o ícone do app. */
 export function PlateMark({
   size = 48,
   plate = "#d33d15",
@@ -49,17 +49,17 @@ type WordmarkProps = {
   rim?: string;
 };
 
-/** "fominha" com o prato mordido no lugar do "o". Tamanho vem do font-size da className. */
+/** "rodizium" com o prato mordido no lugar do "o". Tamanho vem do font-size da className. */
 export function Wordmark({ className = "text-3xl", plate, rim }: WordmarkProps) {
   return (
     <span
       role="img"
-      aria-label="Fominha"
+      aria-label="Rodizium"
       className={`inline-flex items-baseline font-display font-extrabold leading-none tracking-tight ${className}`}
     >
-      f
+      r
       <PlateMark size="0.62em" plate={plate} rim={rim} className="mx-[0.03em]" />
-      minha
+      dizium
     </span>
   );
 }

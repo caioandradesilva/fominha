@@ -3,11 +3,11 @@ import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fominha",
+  title: "Rodizium",
   description: "Quem come mais no rodízio? Agora tem placar.",
   appleWebApp: {
     capable: true,
-    title: "Fominha",
+    title: "Rodizium",
     statusBarStyle: "default",
   },
 };

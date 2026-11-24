@@ -1,4 +1,4 @@
--- Fominha · move as funções internas das regras de acesso para um schema
+-- Rodizium · move as funções internas das regras de acesso para um schema
 -- que não é exposto pela API (resolve os avisos de segurança do Supabase).
 -- As regras (policies) continuam funcionando: elas apontam para a função, não para o nome.
 

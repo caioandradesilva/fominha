@@ -1,4 +1,4 @@
--- Fominha · liga membros e pratos ao perfil, para a API trazer o apelido junto
+-- Rodizium · liga membros e pratos ao perfil, para a API trazer o apelido junto
 -- (ex.: group_members?select=role,profiles(nickname)).
 
 alter table public.group_members

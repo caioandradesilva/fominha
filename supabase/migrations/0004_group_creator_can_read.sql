@@ -1,4 +1,4 @@
--- Fominha · quem cria o grupo consegue lê-lo na mesma operação.
+-- Rodizium · quem cria o grupo consegue lê-lo na mesma operação.
 -- Sem isso, "insert ... returning" falha: a regra de leitura é checada antes
 -- do gatilho que registra o criador como admin.
 

@@ -357,7 +357,7 @@ function Podium({ scores, entries }: { scores: Score[]; entries: Entry[] }) {
   return (
     <>
       <div className="flex flex-col items-center gap-1 text-center">
-        <span className="text-xs font-bold tracking-widest text-tomato-dark uppercase">Fominha da noite</span>
+        <span className="text-xs font-bold tracking-widest text-tomato-dark uppercase">Campeão da noite</span>
         <span className="font-display text-[44px] leading-none font-extrabold">{first.name}</span>
         <span className="text-base text-muted">
           {first.total} peças{second ? ` · ${first.total - second.total} a mais que ${second.name}` : ""}

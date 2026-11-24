@@ -75,7 +75,7 @@ export function InviteScreen() {
         <h1 className="font-display text-2xl font-extrabold">Convite inválido</h1>
         <p className="text-muted">Esse link não existe mais. Peça um novo para quem te convidou.</p>
         <Link href="/" className="font-semibold text-tomato">
-          Ir para o Fominha
+          Ir para o Rodizium
         </Link>
       </main>
     );

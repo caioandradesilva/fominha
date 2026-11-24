@@ -1,4 +1,4 @@
--- Fominha · versão zero
+-- Rodizium · versão zero
 -- Tabelas, regras de acesso (RLS), funções de convite, bucket de fotos e realtime.
 -- Rode este arquivo inteiro uma vez no SQL Editor do Supabase.
 

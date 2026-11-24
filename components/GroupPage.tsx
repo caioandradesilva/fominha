@@ -73,7 +73,7 @@ function GroupLoader({ profile }: { profile: Profile }) {
   const inviteUrl = `${window.location.origin}/convite/${group.invite_code}`;
 
   async function invite() {
-    const result = await shareLink(inviteUrl, `Bora competir no rodízio? Entra no grupo "${group!.name}" no Fominha:`);
+    const result = await shareLink(inviteUrl, `Bora competir no rodízio? Entra no grupo "${group!.name}" no Rodizium:`);
     setShareMsg(result === "copied" ? "Link copiado! Cole no grupo do WhatsApp." : result === "failed" ? inviteUrl : null);
   }
 

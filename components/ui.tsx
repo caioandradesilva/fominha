@@ -58,7 +58,7 @@ export const inputClass =
 export async function shareLink(url: string, text: string): Promise<"shared" | "copied" | "failed"> {
   try {
     if (navigator.share) {
-      await navigator.share({ title: "Fominha", text, url });
+      await navigator.share({ title: "Rodizium", text, url });
       return "shared";
     }
   } catch (e) {
