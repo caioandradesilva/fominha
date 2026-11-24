@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { Waitlist } from "@/components/Waitlist";
+import { Landing } from "@/components/Landing";
 
 export const metadata: Metadata = {
-  title: "Rodizium · Lista de espera",
+  title: "Rodizium · Rodízio agora tem placar",
   description: "Rodízio agora tem placar. Tira foto do prato, a IA conta as peças e o ranking mostra quem mandou melhor.",
   openGraph: {
     title: "Rodizium · Rodízio agora tem placar",
@@ -14,5 +14,5 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <Waitlist />;
+  return <Landing />;
 }

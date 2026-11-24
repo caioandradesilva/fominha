@@ -2,16 +2,26 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasSupabaseEnv, supabaseKey, supabaseUrl } from "@/lib/supabase/env";
 
-// Renova a sessão do Supabase a cada navegação, antes da página renderizar.
-// Domínio da marca: a raiz mostra a lista de espera; o app continua no endereço da Vercel.
+// Dois ambientes no mesmo projeto:
+// - rodizium.com.br: só a landing de lista de espera (qualquer outra rota volta para a raiz;
+//   nenhuma rota do app, nem a API de contagem, responde nesse domínio).
+// - fominha-umber.vercel.app (e qualquer outro host): o MVP, sem a landing.
 const LANDING_HOSTS = new Set(["rodizium.com.br", "www.rodizium.com.br"]);
+const LANDING_ROUTE = "/lista";
 
 export async function proxy(request: NextRequest) {
   const host = request.headers.get("host")?.split(":")[0] ?? "";
-  if (LANDING_HOSTS.has(host) && request.nextUrl.pathname === "/") {
-    return NextResponse.rewrite(new URL("/lista", request.url));
+  const { pathname } = request.nextUrl;
+
+  if (LANDING_HOSTS.has(host)) {
+    if (pathname === "/") return NextResponse.rewrite(new URL(LANDING_ROUTE, request.url));
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+  if (pathname === LANDING_ROUTE || pathname.startsWith(`${LANDING_ROUTE}/`)) {
+    return new NextResponse("Not found", { status: 404 });
   }
 
+  // App: renova a sessão do Supabase a cada navegação, antes da página renderizar.
   let response = NextResponse.next({ request });
   if (!hasSupabaseEnv) return response;
 
