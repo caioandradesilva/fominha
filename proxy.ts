@@ -3,7 +3,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import { hasSupabaseEnv, supabaseKey, supabaseUrl } from "@/lib/supabase/env";
 
 // Renova a sessão do Supabase a cada navegação, antes da página renderizar.
+// Domínio da marca: a raiz mostra a lista de espera; o app continua no endereço da Vercel.
+const LANDING_HOSTS = new Set(["rodizium.com.br", "www.rodizium.com.br"]);
+
 export async function proxy(request: NextRequest) {
+  const host = request.headers.get("host")?.split(":")[0] ?? "";
+  if (LANDING_HOSTS.has(host) && request.nextUrl.pathname === "/") {
+    return NextResponse.rewrite(new URL("/lista", request.url));
+  }
+
   let response = NextResponse.next({ request });
   if (!hasSupabaseEnv) return response;
 
