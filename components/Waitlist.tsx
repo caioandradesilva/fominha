@@ -179,7 +179,7 @@ export function Waitlist() {
               {status === "already" ? "Você já está na lista!" : "Você está na lista!"}
             </h2>
             <p className="text-base leading-relaxed text-muted">
-              Avisamos assim que o Rodizium liberar. Enquanto isso, chama o grupo do rodízio: quanto mais gente, mais cedo vocês entram.
+              Avisamos assim que o Rodizium liberar. Enquanto isso, manda o link pro grupo do rodízio: a disputa só tem graça com todo mundo.
             </p>
             <a href={INSTAGRAM} className="flex h-13 w-full items-center justify-center rounded-2xl bg-tomato text-base font-semibold text-white">
               Seguir @rodizium
