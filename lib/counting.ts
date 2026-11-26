@@ -178,6 +178,6 @@ export async function countPieces(
   const rawTotal = mode === "barca" ? Object.values(por_tipo).reduce((a, b) => a + b, 0) : Number(raw.total) || 0;
   const total = Math.max(0, Math.min(cap, Math.round(rawTotal)));
   const confianca = raw.confianca === "alta" || raw.confianca === "media" || raw.confianca === "baixa" ? raw.confianca : "baixa";
-  const observacao = typeof raw.observacao === "string" && raw.observacao.trim() ? raw.observacao.slice(0, 160) : undefined;
+  const observacao = typeof raw.observacao === "string" && raw.observacao.trim() ? raw.observacao.slice(0, 280) : undefined;
   return { total, por_tipo, confianca, observacao };
 }
