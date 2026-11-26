@@ -1,12 +1,13 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SignedIn, Splash } from "@/components/SignedIn";
 import { Avatar, BackLink, Screen, StatusPill, primaryButton, secondaryButton } from "@/components/ui";
 import type { Profile } from "@/lib/auth";
 import { formatWhen, timeAgo } from "@/lib/format";
 import { compressPhoto } from "@/lib/photo";
+import { QuickPanel } from "@/components/QuickPieces";
 import { getSupabase } from "@/lib/supabase/client";
 
 type EventRow = {
@@ -19,7 +20,13 @@ type EventRow = {
   groups: { name: string } | null;
 };
 type Member = { user_id: string; role: "admin" | "member"; profiles: { nickname: string } | null };
-type Entry = { id: string; user_id: string; count_final: number; created_at: string };
+type Entry = {
+  id: string;
+  user_id: string;
+  count_final: number;
+  created_at: string;
+  ai_result?: { fonte?: string; por_tipo?: Record<string, number> } | null;
+};
 type Score = { userId: string; name: string; total: number; plates: number };
 
 async function fetchEvent(id: string) {
@@ -40,7 +47,7 @@ async function fetchEvent(id: string) {
 async function fetchEntries(eventId: string): Promise<Entry[]> {
   const { data } = await getSupabase()
     .from("entries")
-    .select("id, user_id, count_final, created_at")
+    .select("id, user_id, count_final, created_at, ai_result")
     .eq("event_id", eventId)
     .order("created_at", { ascending: false });
   return (data as Entry[] | null) ?? [];
@@ -56,6 +63,8 @@ function EventView({ profile }: { profile: Profile }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [toast, setToast] = useState<{ label: string; entryId?: string; failed?: boolean } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Carga inicial + placar ao vivo (Realtime): qualquer prato novo, corrigido ou
   // apagado, ou mudança no status do evento, recarrega os dados em todos os celulares.
@@ -107,6 +116,22 @@ function EventView({ profile }: { profile: Profile }) {
     return [...map.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
   }, [members, entries]);
 
+  // Quantas peças de cada tipo EU registrei pelo registro rápido (aparece no canto de cada botão)
+  const myCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const e of entries) {
+      if (e.user_id !== profile.id || e.ai_result?.fonte !== "rapido") continue;
+      for (const [k, v] of Object.entries(e.ai_result.por_tipo ?? {})) c[k] = (c[k] ?? 0) + v;
+    }
+    return c;
+  }, [entries, profile.id]);
+
+  function showToast(t: { label: string; entryId?: string; failed?: boolean }) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(t);
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
+  }
+
   if (event === undefined) return <Splash />;
   if (event === null) {
     return (
@@ -150,15 +175,43 @@ function EventView({ profile }: { profile: Profile }) {
     return !error;
   }
 
-  async function undo(entryId: string) {
-    if (!window.confirm("Apagar este prato?")) return;
+  // Registro rápido: cada toque vira +1 na hora (otimista) e o placar de todos atualiza pelo Realtime.
+  async function quickAdd(tipo: string) {
+    navigator.vibrate?.(12);
+    const tempId = `tmp-${crypto.randomUUID()}`;
+    const ai_result = { fonte: "rapido", por_tipo: { [tipo]: 1 } };
+    setEntries((list) => [{ id: tempId, user_id: profile.id, count_final: 1, created_at: new Date().toISOString(), ai_result }, ...list]);
+    showToast({ label: `+1 ${tipo}` });
+    const { data, error } = await getSupabase()
+      .from("entries")
+      .insert({ event_id: id, user_id: profile.id, count_final: 1, ai_result })
+      .select("id")
+      .single();
+    if (error || !data) {
+      setEntries((list) => list.filter((e) => e.id !== tempId));
+      showToast({ label: "Não salvou. Confira a internet.", failed: true });
+      return;
+    }
+    setEntries((list) => list.map((e) => (e.id === tempId ? { ...e, id: data.id } : e)));
+    setToast((t) => (t && t.label === `+1 ${tipo}` && !t.entryId ? { ...t, entryId: data.id } : t));
+  }
+
+  async function undoToast() {
+    const entryId = toast?.entryId;
+    setToast(null);
+    if (entryId) await undo(entryId, false);
+  }
+
+  async function undo(entryId: string, ask = true) {
+    if (entryId.startsWith("tmp-")) return;
+    if (ask && !window.confirm("Apagar este registro?")) return;
     await getSupabase().from("entries").delete().eq("id", entryId);
     setEntries(await fetchEntries(id));
   }
 
   return (
     <>
-      <Screen className={event.status === "live" ? "!pb-32" : ""}>
+      <Screen className={event.status === "live" ? "!pb-[270px]" : ""}>
         <div className="flex items-center gap-2">
           <BackLink href={`/g/${event.group_id}`} />
           <div className="flex min-w-0 flex-1 flex-col">
@@ -181,14 +234,21 @@ function EventView({ profile }: { profile: Profile }) {
 
       {event.status === "live" && (
         <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white">
-          <div className="mx-auto flex max-w-md gap-2.5 px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <div className="mx-auto max-w-md px-4 pt-2.5">
+            <QuickPanel myCounts={myCounts} onTap={quickAdd} toast={toast} onUndoToast={undoToast} />
+          </div>
+          <div className="mx-auto flex max-w-md gap-2.5 px-4 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {isAdmin && (
               <button onClick={closeEvent} className="h-13 shrink-0 rounded-2xl border border-line-strong px-4 text-sm font-semibold">
                 Encerrar
               </button>
             )}
-            <button onClick={() => setSheetOpen(true)} className={primaryButton}>
-              Registrar prato
+            <button onClick={() => setSheetOpen(true)} className={primaryButton + " gap-2"}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+                <circle cx="12" cy="13.5" r="3.5" />
+              </svg>
+              Foto do prato
             </button>
           </div>
         </div>
@@ -281,7 +341,7 @@ function Live({
 
       {!hasPlates && (
         <p className="rounded-2xl border border-dashed border-line-strong px-4 py-4 text-center text-sm text-muted">
-          Placar aberto! Registre o primeiro prato.
+          Placar aberto! Toque nas peças lá embaixo ou fotografe o prato.
         </p>
       )}
 
@@ -312,7 +372,10 @@ function Live({
               <Avatar id={e.user_id} name={nameOf(e.user_id)} size={34} />
               <div className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-sm font-semibold">
-                  {e.user_id === meId ? "Você" : nameOf(e.user_id)} registrou {e.count_final} {e.count_final === 1 ? "peça" : "peças"}
+                  {e.user_id === meId ? "Você" : nameOf(e.user_id)}{" "}
+                  {e.ai_result?.fonte === "rapido"
+                    ? `comeu 1 ${Object.keys(e.ai_result.por_tipo ?? {})[0] ?? "peça"}`
+                    : `registrou ${e.count_final} ${e.count_final === 1 ? "peça" : "peças"}`}
                 </span>
                 <span className="text-xs text-muted">{timeAgo(e.created_at)}</span>
               </div>
@@ -338,6 +401,11 @@ function Podium({ scores, entries }: { scores: Score[]; entries: Entry[] }) {
   if (!first) {
     return <p className="rounded-2xl bg-chip px-4 py-4 text-center text-sm text-muted">Evento encerrado sem pratos registrados.</p>;
   }
+
+  // Peça mais comida pelo grupo (registro rápido + tipos que a IA encontrou nas fotos)
+  const byType: Record<string, number> = {};
+  for (const e of entries) for (const [k, v] of Object.entries(e.ai_result?.por_tipo ?? {})) if (k !== "Outra") byType[k] = (byType[k] ?? 0) + v;
+  const topType = Object.entries(byType).sort((x, y) => y[1] - x[1])[0]?.[0];
 
   const block = (s: Score | undefined, place: number, height: number, bg: string, fg = "#1a1714") =>
     s && (
@@ -373,7 +441,7 @@ function Podium({ scores, entries }: { scores: Score[]; entries: Entry[] }) {
       <div className="grid grid-cols-3 gap-2.5">
         <Stat value={String(total)} label="peças no grupo" />
         <Stat value={avg.toFixed(1).replace(".", ",")} label="média por pessoa" />
-        <Stat value={String(entries.length)} label="pratos" />
+        {topType ? <Stat value={topType} label="peça mais comida" /> : <Stat value={String(entries.length)} label="registros" />}
       </div>
 
       {ranked.length > 3 && (
