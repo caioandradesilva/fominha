@@ -1,0 +1,243 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { PieceArt, QUICK_PIECES } from "@/components/QuickPieces";
+import { primaryButton, secondaryButton } from "@/components/ui";
+import { compressPhoto } from "@/lib/photo";
+import { getSupabase } from "@/lib/supabase/client";
+
+export type Boat = {
+  id: string;
+  created_by: string;
+  counts: Record<string, number>;
+  total: number;
+  created_at: string;
+  photo_path: string | null;
+};
+
+type AiResult = {
+  total: number;
+  por_tipo: Record<string, number>;
+  confianca: "alta" | "media" | "baixa";
+  observacao?: string;
+};
+
+type Step = "choose" | "counting" | "review";
+
+const confidence = {
+  alta: ["Confiança alta", "#e3f1e6", "#1e5b2e"],
+  media: ["Confiança média", "#fdf0d2", "#5c3e00"],
+  baixa: ["Confiança baixa", "#fbe3da", "#a82e0e"],
+} as const;
+
+/** Foto da barca → IA conta por tipo → o grupo revisa e confirma. Também corrige uma barca já registrada. */
+export function BoatSheet({
+  eventId,
+  userId,
+  editing,
+  onClose,
+  onSaved,
+}: {
+  eventId: string;
+  userId: string;
+  editing?: Boat;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [step, setStep] = useState<Step>(editing ? "review" : "choose");
+  const [counts, setCounts] = useState<Record<string, number>>(editing?.counts ?? {});
+  const [preview, setPreview] = useState<string | null>(null);
+  const [photoPath, setPhotoPath] = useState<string | null>(editing?.photo_path ?? null);
+  const [ai, setAi] = useState<AiResult | undefined>();
+  const [aiFailed, setAiFailed] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => () => {
+    if (preview) URL.revokeObjectURL(preview);
+  }, [preview]);
+
+  async function onPhoto(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    setAi(undefined);
+    setAiFailed(null);
+    setStep("counting");
+    try {
+      const blob = await compressPhoto(file, 1600, 0.82);
+      setPreview(URL.createObjectURL(blob));
+      const path = `${eventId}/${userId}/barca-${crypto.randomUUID()}.jpg`;
+      const supabase = getSupabase();
+      const { error: upErr } = await supabase.storage.from("plates").upload(path, blob, { contentType: "image/jpeg" });
+      if (upErr) throw new Error("upload");
+      await supabase.auth.getSession();
+      setPhotoPath(path);
+      const res = await fetch("/api/contar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, path, mode: "barca" }),
+      });
+      if (!res.ok) {
+        const info = (await res.json().catch(() => ({}))) as { code?: string; detail?: string };
+        const stop = info.detail?.match(/stop=(\w+)/)?.[1];
+        throw new Error(`ai:${res.status}:${info.code ?? "?"}${stop ? `:${stop}` : ""}`);
+      }
+      const result = (await res.json()) as AiResult;
+      setAi(result);
+      setCounts(result.por_tipo);
+    } catch (e) {
+      const msg = (e as Error).message || "erro";
+      setAiFailed(msg);
+      if (msg === "upload") setPhotoPath(null);
+    }
+    setStep("review");
+  }
+
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const bump = (id: string, d: number) =>
+    setCounts((c) => {
+      const n = Math.max(0, Math.min(200, (c[id] ?? 0) + d));
+      const next = { ...c, [id]: n };
+      if (n === 0) delete next[id];
+      return next;
+    });
+
+  async function save() {
+    if (total === 0) return setError("A barca está zerada. Ajuste as peças antes de confirmar.");
+    setBusy(true);
+    setError(null);
+    const supabase = getSupabase();
+    const row = { counts, total, photo_path: photoPath, ai_result: ai ?? null, updated_at: new Date().toISOString() };
+    const { error: err } = editing
+      ? await supabase.from("boats").update(row).eq("id", editing.id)
+      : await supabase.from("boats").insert({ ...row, event_id: eventId });
+    if (err) {
+      setBusy(false);
+      return setError("Não salvou. Confira a internet e tente de novo.");
+    }
+    onSaved();
+    onClose();
+  }
+
+  const photoInput = (label: string, primary: boolean) => (
+    <label className={primary ? primaryButton + " cursor-pointer gap-2" : secondaryButton + " flex cursor-pointer items-center justify-center"}>
+      {primary && (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+          <circle cx="12" cy="13.5" r="3.5" />
+        </svg>
+      )}
+      {label}
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          onPhoto(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+    </label>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-[rgba(26,23,20,0.55)]" onClick={step === "counting" ? undefined : onClose}>
+      <div
+        role="dialog"
+        aria-label="Barca"
+        className="mx-auto flex max-h-[92dvh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-t-3xl bg-cream px-5 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto h-1.5 w-10 shrink-0 rounded-full bg-line-strong" />
+
+        {step === "choose" && (
+          <>
+            <h2 className="font-display text-2xl font-extrabold">Chegou a barca?</h2>
+            <p className="-mt-2 text-sm text-muted">
+              Fotografe de cima, com a barca inteira na foto, antes de alguém pegar. A IA conta as peças e o grupo vai descontando.
+            </p>
+            {photoInput("Fotografar barca", true)}
+            <button onClick={() => setStep("review")} className={secondaryButton}>
+              Contar sem foto
+            </button>
+            <button onClick={onClose} className="h-10 text-sm font-semibold text-muted">
+              Cancelar
+            </button>
+          </>
+        )}
+
+        {step === "counting" && (
+          <div className="flex flex-col items-center gap-4 py-6">
+            {preview && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={preview} alt="Foto da barca" className="h-56 w-full rounded-2xl object-cover" />
+            )}
+            <div className="flex items-center gap-3">
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-tomato border-t-transparent" />
+              <span className="font-semibold">Contando a barca…</span>
+            </div>
+          </div>
+        )}
+
+        {step === "review" && (
+          <>
+            {preview && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={preview} alt="Foto da barca" className="h-40 w-full shrink-0 rounded-2xl object-cover" />
+            )}
+            <div className="flex items-end justify-between">
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold text-muted">{editing ? "Corrigir barca" : ai ? "A IA contou" : "Peças na barca"}</span>
+                <span className="font-display text-5xl leading-none font-extrabold">{total}</span>
+              </div>
+              {ai && (
+                <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: confidence[ai.confianca][1], color: confidence[ai.confianca][2] }}>
+                  {confidence[ai.confianca][0]}
+                </span>
+              )}
+            </div>
+            {ai?.confianca !== "alta" && ai?.observacao && (
+              <p className="rounded-xl bg-gold-soft px-3 py-2 text-[13px] text-[#5c3e00]">{ai.observacao}</p>
+            )}
+            {aiFailed && (
+              <p className="rounded-xl bg-gold-soft px-3 py-2 text-[13px] text-[#5c3e00]">
+                Não consegui contar agora. Ajuste as peças manualmente.
+                <span className="mt-1 block text-[11px] opacity-70">Código: {aiFailed}</span>
+              </p>
+            )}
+            <p className="-mt-1 text-[13px] text-muted">Confira e ajuste antes de confirmar: é desse saldo que o grupo desconta.</p>
+            <div className="rounded-2xl border border-line bg-white px-3">
+              {QUICK_PIECES.map((p, i) => {
+                const n = counts[p.id] ?? 0;
+                return (
+                  <div key={p.id} className={`flex h-13 items-center gap-3 ${i < QUICK_PIECES.length - 1 ? "border-b border-[#f0ece6]" : ""}`}>
+                    <PieceArt id={p.id} size={28} />
+                    <span className={`flex-1 text-[15px] font-semibold ${n ? "" : "text-muted"}`}>{p.label}</span>
+                    <button onClick={() => bump(p.id, -1)} aria-label={`Menos um ${p.label}`} className="flex h-9 w-9 items-center justify-center rounded-full border border-line text-lg">
+                      −
+                    </button>
+                    <span className="w-7 text-center text-lg font-bold">{n}</span>
+                    <button onClick={() => bump(p.id, 1)} aria-label={`Mais um ${p.label}`} className="flex h-9 w-9 items-center justify-center rounded-full border border-line text-lg">
+                      +
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {error && <p className="text-center text-sm text-tomato-dark">{error}</p>}
+            <button onClick={save} disabled={busy} className={primaryButton}>
+              {busy ? "Salvando…" : editing ? "Salvar correção" : `Confirmar barca · ${total} peças`}
+            </button>
+            {!editing && photoInput("Tirar outra foto", false)}
+            {editing && (
+              <button onClick={onClose} className="h-10 text-sm font-semibold text-muted">
+                Cancelar
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

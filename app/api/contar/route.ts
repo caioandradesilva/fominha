@@ -8,7 +8,7 @@ export const maxDuration = 60;
 
 /** Recebe o caminho da foto já enviada ao Storage e devolve a contagem da IA. */
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as { eventId?: string; path?: string } | null;
+  const body = (await request.json().catch(() => null)) as { eventId?: string; path?: string; mode?: string } | null;
   if (!body?.eventId || !body.path) {
     return NextResponse.json({ error: "Pedido inválido" }, { status: 400 });
   }
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
   const type = file.type === "image/png" || file.type === "image/webp" ? file.type : "image/jpeg";
   try {
-    const result = await countPieces(Buffer.from(await file.arrayBuffer()), type);
+    const result = await countPieces(Buffer.from(await file.arrayBuffer()), type, body.mode === "barca" ? "barca" : "prato");
     return NextResponse.json(result);
   } catch (e) {
     const code = e instanceof CountError ? e.code : "unknown";

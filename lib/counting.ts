@@ -19,6 +19,47 @@ Conte cada peça individual de comida que a pessoa vai comer.
 Em por_tipo, use nomes simples em português (ex.: uramaki, nigiri, hot roll) e inclua só os tipos que aparecem.
 Em observacao, escreva uma frase curta em português (pode ser vazia).`;
 
+/** Tipos do registro rápido (mesmos nomes dos botões do app). A barca é contada só nesses tipos. */
+export const BOAT_TYPES = ["Uramaki", "Hot roll", "Niguiri", "Sashimi", "Hossomaki", "Joe", "Temaki", "Outra"] as const;
+
+const BOAT_PROMPT = `Esta é a foto de uma barca (ou travessa) de rodízio de sushi em modo festival, que vai ser dividida pela mesa.
+Conte TODAS as peças de comida da barca e classifique cada uma em exatamente um destes tipos:
+- Uramaki: enrolado com o arroz por fora (pode ter gergelim, cream cheese, cobertura).
+- Hot roll: enrolado empanado e frito (casca dourada/marrom).
+- Niguiri: bolinho de arroz com uma fatia de peixe ou outro ingrediente por cima.
+- Sashimi: fatia de peixe crua sem arroz (cada fatia conta 1).
+- Hossomaki: enrolado fino com a alga por fora.
+- Joe: bolinho de arroz envolto por uma fatia de salmão, geralmente com algo por cima.
+- Temaki: cone de alga.
+- Outra: qualquer outra peça de comida (gunkan, harumaki, ceviche em colher, etc.).
+Regras:
+- Cada peça conta 1. Peças sobrepostas ou em fileira contam separadamente; conte com cuidado fileira por fileira.
+- NÃO conte gengibre, wasabi, molho, folhas, flores, decoração, rabanete ralado, hashi ou a própria barca.
+- Se parte da barca estiver fora da foto, borrada, ou houver peças escondidas/empilhadas, use confiança "baixa" e diga onde em observacao.
+- Se a foto não mostrar comida, responda total 0, confiança "baixa" e explique em observacao.
+- total deve ser a soma de por_tipo. Inclua em por_tipo só os tipos que aparecem.
+Em observacao, escreva uma frase curta em português (pode ser vazia).`;
+
+const BOAT_SCHEMA = {
+  type: "object",
+  properties: {
+    total: { type: "integer" },
+    por_tipo: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { tipo: { type: "string", enum: [...BOAT_TYPES] }, quantidade: { type: "integer" } },
+        required: ["tipo", "quantidade"],
+        additionalProperties: false,
+      },
+    },
+    confianca: { type: "string", enum: ["alta", "media", "baixa"] },
+    observacao: { type: "string" },
+  },
+  required: ["total", "por_tipo", "confianca", "observacao"],
+  additionalProperties: false,
+};
+
 // Saída estruturada: a API garante que a resposta segue exatamente este esquema.
 const SCHEMA = {
   type: "object",
@@ -69,19 +110,25 @@ function parseAnswer(text: string): RawAnswer | null {
   }
 }
 
-async function askOnce(client: Anthropic, image: string, mediaType: "image/jpeg" | "image/png" | "image/webp", maxTokens: number) {
+async function askOnce(
+  client: Anthropic,
+  image: string,
+  mediaType: "image/jpeg" | "image/png" | "image/webp",
+  maxTokens: number,
+  mode: CountMode,
+) {
   let message;
   try {
     message = await client.messages.create({
       model: MODEL,
       max_tokens: maxTokens,
-      output_config: { format: { type: "json_schema", schema: SCHEMA } },
+      output_config: { format: { type: "json_schema", schema: mode === "barca" ? BOAT_SCHEMA : SCHEMA } },
       messages: [
         {
           role: "user",
           content: [
             { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
-            { type: "text", text: PROMPT },
+            { type: "text", text: mode === "barca" ? BOAT_PROMPT : PROMPT },
           ],
         },
       ],
@@ -101,26 +148,35 @@ async function askOnce(client: Anthropic, image: string, mediaType: "image/jpeg"
   return raw;
 }
 
+export type CountMode = "prato" | "barca";
+
 /** Manda a foto para a API de visão e devolve a contagem sugerida. */
-export async function countPieces(image: Buffer, mediaType: "image/jpeg" | "image/png" | "image/webp"): Promise<CountResult> {
+export async function countPieces(
+  image: Buffer,
+  mediaType: "image/jpeg" | "image/png" | "image/webp",
+  mode: CountMode = "prato",
+): Promise<CountResult> {
   const client = new Anthropic({ maxRetries: 2 }); // usa ANTHROPIC_API_KEY do ambiente
   const data = image.toString("base64");
   let raw: RawAnswer;
   try {
-    raw = await askOnce(client, data, mediaType, 2000);
+    raw = await askOnce(client, data, mediaType, mode === "barca" ? 3000 : 2000, mode);
   } catch (e) {
     // Resposta fora do formato: tenta mais uma vez com mais espaço antes de desistir
     if (!(e instanceof CountError) || e.code !== "ai_format") throw e;
     console.warn("contar: 1ª resposta fora do formato, tentando de novo", e.message);
-    raw = await askOnce(client, data, mediaType, 4000);
+    raw = await askOnce(client, data, mediaType, 6000, mode);
   }
 
-  const total = Math.max(0, Math.min(200, Math.round(Number(raw.total) || 0)));
   const por_tipo: Record<string, number> = {};
   for (const item of raw.por_tipo ?? []) {
     const n = Math.round(Number(item.quantidade) || 0);
     if (item.tipo && n > 0) por_tipo[item.tipo] = (por_tipo[item.tipo] ?? 0) + n;
   }
+  const cap = mode === "barca" ? 500 : 200;
+  // Na barca o total é sempre a soma dos tipos (é o que o app usa como saldo)
+  const rawTotal = mode === "barca" ? Object.values(por_tipo).reduce((a, b) => a + b, 0) : Number(raw.total) || 0;
+  const total = Math.max(0, Math.min(cap, Math.round(rawTotal)));
   const confianca = raw.confianca === "alta" || raw.confianca === "media" || raw.confianca === "baixa" ? raw.confianca : "baixa";
   const observacao = typeof raw.observacao === "string" && raw.observacao.trim() ? raw.observacao.slice(0, 160) : undefined;
   return { total, por_tipo, confianca, observacao };

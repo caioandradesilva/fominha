@@ -111,19 +111,46 @@ export function PieceArt({ id, size = 32 }: { id: string; size?: number }) {
 
 export function QuickPanel({
   myCounts,
+  remaining,
+  boatTotal,
   onTap,
+  onBoat,
   toast,
   onUndoToast,
 }: {
   myCounts: Record<string, number>;
+  /** Saldo da barca por tipo (null = nenhuma barca registrada) */
+  remaining: Record<string, number> | null;
+  boatTotal: number;
   onTap: (id: string) => void;
+  onBoat: () => void;
   toast: { label: string; failed?: boolean } | null;
   onUndoToast: () => void;
 }) {
+  const left = remaining ? Object.values(remaining).reduce((a, b) => a + Math.max(0, b), 0) : 0;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex h-7 items-center justify-between gap-2" aria-live="polite">
-        {!toast && <span className="truncate text-[13px] font-semibold text-muted">Comeu da barca? Toque na peça</span>}
+        {!toast && (
+          <span className="truncate text-[13px] font-semibold text-muted">
+            {remaining ? (
+              <>
+                Barca: <strong className="text-ink">{left}</strong> de {boatTotal} restando
+              </>
+            ) : (
+              "Comeu da barca? Toque na peça"
+            )}
+          </span>
+        )}
+        {!toast && (
+          <button onClick={onBoat} className="flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-ink px-3 text-xs font-semibold text-white">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+              <circle cx="12" cy="13.5" r="3.5" />
+            </svg>
+            {remaining ? "Nova barca" : "Foto da barca"}
+          </button>
+        )}
         {toast && (
           <span className={`flex w-full items-center justify-between gap-2 text-[13px] font-semibold ${toast.failed ? "text-tomato-dark" : "text-ok"}`}>
             <span className="truncate">{toast.label}</span>
@@ -138,16 +165,18 @@ export function QuickPanel({
       <div className="grid grid-cols-4 gap-2">
         {QUICK_PIECES.map((p) => {
           const mine = myCounts[p.id] ?? 0;
+          const rest = remaining && p.id !== "Outra" ? Math.max(0, remaining[p.id] ?? 0) : null;
           return (
             <button
               key={p.id}
               type="button"
               onClick={() => onTap(p.id)}
               aria-label={`Comi 1 ${p.label}`}
-              className="relative flex h-[66px] flex-col items-center justify-center gap-1 rounded-2xl border border-line bg-cream transition-transform select-none active:scale-90 active:bg-tomato-soft"
+              className={`relative flex h-[70px] flex-col items-center justify-center gap-1 rounded-2xl border transition-transform select-none active:scale-90 active:bg-tomato-soft ${rest === 0 ? "border-line bg-[#f3efe9] opacity-55" : "border-line bg-cream"}`}
             >
-              <PieceArt id={p.id} size={32} />
+              <PieceArt id={p.id} size={30} />
               <span className="text-[11px] leading-none font-semibold">{p.label}</span>
+              {rest !== null && <span className="text-[10px] leading-none font-semibold text-muted">{rest === 0 ? "acabou" : `restam ${rest}`}</span>}
               {mine > 0 && (
                 <span className="absolute -top-1.5 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1 text-[11px] font-bold text-white">
                   {mine}

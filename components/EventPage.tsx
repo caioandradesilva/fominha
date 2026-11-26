@@ -8,6 +8,7 @@ import type { Profile } from "@/lib/auth";
 import { formatWhen, timeAgo } from "@/lib/format";
 import { compressPhoto } from "@/lib/photo";
 import { QuickPanel } from "@/components/QuickPieces";
+import { BoatSheet, type Boat } from "@/components/BoatSheet";
 import { getSupabase } from "@/lib/supabase/client";
 
 type EventRow = {
@@ -44,6 +45,15 @@ async function fetchEvent(id: string) {
   return { event: ev as unknown as EventRow, members: (m.data as Member[] | null) ?? [], entries: e };
 }
 
+async function fetchBoats(eventId: string): Promise<Boat[]> {
+  const { data } = await getSupabase()
+    .from("boats")
+    .select("id, created_by, counts, total, created_at, photo_path")
+    .eq("event_id", eventId)
+    .order("created_at", { ascending: true });
+  return (data as Boat[] | null) ?? [];
+}
+
 async function fetchEntries(eventId: string): Promise<Entry[]> {
   const { data } = await getSupabase()
     .from("entries")
@@ -63,6 +73,8 @@ function EventView({ profile }: { profile: Profile }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [boats, setBoats] = useState<Boat[]>([]);
+  const [boatSheet, setBoatSheet] = useState<{ editing?: Boat } | null>(null);
   const [toast, setToast] = useState<{ label: string; entryId?: string; failed?: boolean } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -77,6 +89,7 @@ function EventView({ profile }: { profile: Profile }) {
       setMembers(r.members);
       setEntries(r.entries);
     });
+    fetchBoats(id).then((b) => active && setBoats(b));
     let channel: ReturnType<typeof supabase.channel> | null = null;
     // O canal ao vivo precisa do token do usuário para as regras de acesso valerem.
     supabase.auth.getSession().then(async ({ data }) => {
@@ -86,6 +99,9 @@ function EventView({ profile }: { profile: Profile }) {
         .channel(`event-${id}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "entries", filter: `event_id=eq.${id}` }, () => {
           fetchEntries(id).then((e) => active && setEntries(e));
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "boats", filter: `event_id=eq.${id}` }, () => {
+          fetchBoats(id).then((b) => active && setBoats(b));
         })
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "events", filter: `id=eq.${id}` }, () => {
           fetchEvent(id).then((r) => {
@@ -125,6 +141,19 @@ function EventView({ profile }: { profile: Profile }) {
     }
     return c;
   }, [entries, profile.id]);
+
+  // Saldo da barca: tudo o que as fotos de barca contaram, menos o que o grupo já registrou no toque rápido
+  const boatTotal = boats.reduce((a, b) => a + b.total, 0);
+  const remaining = useMemo(() => {
+    if (boats.length === 0) return null;
+    const r: Record<string, number> = {};
+    for (const b of boats) for (const [k, v] of Object.entries(b.counts)) r[k] = (r[k] ?? 0) + v;
+    for (const e of entries) {
+      if (e.ai_result?.fonte !== "rapido") continue;
+      for (const [k, v] of Object.entries(e.ai_result.por_tipo ?? {})) r[k] = (r[k] ?? 0) - v;
+    }
+    return r;
+  }, [boats, entries]);
 
   function showToast(t: { label: string; entryId?: string; failed?: boolean }) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -177,6 +206,12 @@ function EventView({ profile }: { profile: Profile }) {
 
   // Registro rápido: cada toque vira +1 na hora (otimista) e o placar de todos atualiza pelo Realtime.
   async function quickAdd(tipo: string) {
+    if (remaining && tipo !== "Outra" && (remaining[tipo] ?? 0) <= 0) {
+      const ok = window.confirm(
+        `Pela contagem da barca, não sobrou ${tipo}. Registrar mesmo assim?\n\nSe a IA errou, toque em "Corrigir" na barca para ajustar.`,
+      );
+      if (!ok) return;
+    }
     navigator.vibrate?.(12);
     const tempId = `tmp-${crypto.randomUUID()}`;
     const ai_result = { fonte: "rapido", por_tipo: { [tipo]: 1 } };
@@ -211,7 +246,7 @@ function EventView({ profile }: { profile: Profile }) {
 
   return (
     <>
-      <Screen className={event.status === "live" ? "!pb-[270px]" : ""}>
+      <Screen className={event.status === "live" ? "!pb-[290px]" : ""}>
         <div className="flex items-center gap-2">
           <BackLink href={`/g/${event.group_id}`} />
           <div className="flex min-w-0 flex-1 flex-col">
@@ -227,7 +262,16 @@ function EventView({ profile }: { profile: Profile }) {
           <Lobby event={event} scores={scores} isAdmin={isAdmin} onStart={() => setStatus("live")} />
         )}
         {event.status === "live" && (
-          <Live scores={scores} entries={entries} meId={profile.id} nameOf={nameOf} onUndo={undo} />
+          <Live
+            scores={scores}
+            entries={entries}
+            meId={profile.id}
+            nameOf={nameOf}
+            onUndo={undo}
+            boats={boats}
+            remaining={remaining}
+            onEditBoat={(b) => setBoatSheet({ editing: b })}
+          />
         )}
         {event.status === "closed" && <Podium scores={scores} entries={entries} />}
       </Screen>
@@ -235,7 +279,15 @@ function EventView({ profile }: { profile: Profile }) {
       {event.status === "live" && (
         <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white">
           <div className="mx-auto max-w-md px-4 pt-2.5">
-            <QuickPanel myCounts={myCounts} onTap={quickAdd} toast={toast} onUndoToast={undoToast} />
+            <QuickPanel
+              myCounts={myCounts}
+              remaining={remaining}
+              boatTotal={boatTotal}
+              onTap={quickAdd}
+              onBoat={() => setBoatSheet({})}
+              toast={toast}
+              onUndoToast={undoToast}
+            />
           </div>
           <div className="mx-auto flex max-w-md gap-2.5 px-4 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {isAdmin && (
@@ -252,6 +304,16 @@ function EventView({ profile }: { profile: Profile }) {
             </button>
           </div>
         </div>
+      )}
+
+      {boatSheet && (
+        <BoatSheet
+          eventId={id}
+          userId={profile.id}
+          editing={boatSheet.editing}
+          onClose={() => setBoatSheet(null)}
+          onSaved={() => fetchBoats(id).then(setBoats)}
+        />
       )}
 
       {sheetOpen && (
@@ -305,12 +367,18 @@ function Live({
   meId,
   nameOf,
   onUndo,
+  boats,
+  remaining,
+  onEditBoat,
 }: {
   scores: Score[];
   entries: Entry[];
   meId: string;
   nameOf: (uid: string) => string;
   onUndo: (id: string) => void;
+  boats: Boat[];
+  remaining: Record<string, number> | null;
+  onEditBoat: (b: Boat) => void;
 }) {
   const leader = scores[0];
   const second = scores[1];
@@ -364,9 +432,34 @@ function Live({
         ))}
       </div>
 
+      {boats.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-[15px] font-bold">Barcas</h2>
+          {boats.map((b, i) => (
+            <div key={b.id} className="flex items-center gap-3 rounded-2xl border border-line bg-white px-3.5 py-2.5">
+              <span className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-gold-soft font-display text-sm font-extrabold">{i + 1}</span>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm font-semibold">
+                  {b.total} peças · foto de {b.created_by === meId ? "você" : nameOf(b.created_by)}
+                </span>
+                <span className="text-xs text-muted">{timeAgo(b.created_at)}</span>
+              </div>
+              <button onClick={() => onEditBoat(b)} className="h-8 rounded-lg border border-line px-2.5 text-xs font-semibold">
+                Corrigir
+              </button>
+            </div>
+          ))}
+          {remaining && Object.values(remaining).some((v) => v < 0) && (
+            <p className="rounded-xl bg-gold-soft px-3 py-2 text-[13px] text-[#5c3e00]">
+              O grupo registrou mais peças do que a barca tinha em algum tipo. Se a IA contou errado, toque em Corrigir.
+            </p>
+          )}
+        </section>
+      )}
+
       {hasPlates && (
         <section className="flex flex-col gap-2">
-          <h2 className="text-[15px] font-bold">Últimos pratos</h2>
+          <h2 className="text-[15px] font-bold">Últimos registros</h2>
           {entries.slice(0, 6).map((e) => (
             <div key={e.id} className="flex items-center gap-3 rounded-2xl border border-line bg-white px-3.5 py-2.5">
               <Avatar id={e.user_id} name={nameOf(e.user_id)} size={34} />
