@@ -112,6 +112,7 @@ export function PieceArt({ id, size = 32 }: { id: string; size?: number }) {
 export function QuickPanel({
   myCounts,
   remaining,
+  boatCounts,
   boatTotal,
   onTap,
   onBoat,
@@ -121,12 +122,16 @@ export function QuickPanel({
   myCounts: Record<string, number>;
   /** Saldo da barca por tipo (null = nenhuma barca registrada) */
   remaining: Record<string, number> | null;
+  /** Peças que as barcas trouxeram, somadas por tipo (null = nenhuma barca) */
+  boatCounts: Record<string, number> | null;
   boatTotal: number;
   onTap: (id: string) => void;
   onBoat: () => void;
   toast: { label: string; failed?: boolean } | null;
   onUndoToast: () => void;
 }) {
+  // Com barca registrada, só aparecem as peças que vieram nela (e "Outra", para o que a IA não previu)
+  const visible = boatCounts ? QUICK_PIECES.filter((p) => p.id === "Outra" || (boatCounts[p.id] ?? 0) > 0) : QUICK_PIECES;
   const left = remaining ? Object.values(remaining).reduce((a, b) => a + Math.max(0, b), 0) : 0;
   return (
     <div className="flex flex-col gap-2">
@@ -163,7 +168,7 @@ export function QuickPanel({
         )}
       </div>
       <div className="grid grid-cols-4 gap-2">
-        {QUICK_PIECES.map((p) => {
+        {visible.map((p) => {
           const mine = myCounts[p.id] ?? 0;
           const rest = remaining && p.id !== "Outra" ? Math.max(0, remaining[p.id] ?? 0) : null;
           return (

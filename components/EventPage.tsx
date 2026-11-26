@@ -144,6 +144,12 @@ function EventView({ profile }: { profile: Profile }) {
 
   // Saldo da barca: tudo o que as fotos de barca contaram, menos o que o grupo já registrou no toque rápido
   const boatTotal = boats.reduce((a, b) => a + b.total, 0);
+  const boatCounts = useMemo(() => {
+    if (boats.length === 0) return null;
+    const c: Record<string, number> = {};
+    for (const b of boats) for (const [k, v] of Object.entries(b.counts)) c[k] = (c[k] ?? 0) + v;
+    return c;
+  }, [boats]);
   const remaining = useMemo(() => {
     if (boats.length === 0) return null;
     const r: Record<string, number> = {};
@@ -282,6 +288,7 @@ function EventView({ profile }: { profile: Profile }) {
             <QuickPanel
               myCounts={myCounts}
               remaining={remaining}
+              boatCounts={boatCounts}
               boatTotal={boatTotal}
               onTap={quickAdd}
               onBoat={() => setBoatSheet({})}
