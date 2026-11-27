@@ -105,6 +105,9 @@ function EventView({ profile }: { profile: Profile }) {
         .on("postgres_changes", { event: "*", schema: "public", table: "boats", filter: `event_id=eq.${id}` }, () => {
           fetchBoats(id).then((b) => active && setBoats(b));
         })
+        .on("postgres_changes", { event: "*", schema: "public", table: "group_members" }, () => {
+          fetchEvent(id).then((r) => active && setMembers(r.members));
+        })
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "events", filter: `id=eq.${id}` }, () => {
           fetchEvent(id).then((r) => {
             if (!active) return;
@@ -114,8 +117,21 @@ function EventView({ profile }: { profile: Profile }) {
         })
         .subscribe();
     });
+    // Celular que ficou em segundo plano pode perder a conexão ao vivo: recarrega tudo ao voltar
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      fetchEvent(id).then((r) => {
+        if (!active) return;
+        setEvent(r.event);
+        setMembers(r.members);
+        setEntries(r.entries);
+      });
+      fetchBoats(id).then((b) => active && setBoats(b));
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       active = false;
+      document.removeEventListener("visibilitychange", onVisible);
       if (channel) supabase.removeChannel(channel);
     };
   }, [id]);

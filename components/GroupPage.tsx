@@ -46,14 +46,33 @@ function GroupLoader({ profile }: { profile: Profile }) {
 
   useEffect(() => {
     let active = true;
-    fetchGroup(id).then((r) => {
+    const supabase = getSupabase();
+    const load = () =>
+      fetchGroup(id).then((r) => {
+        if (!active) return;
+        setGroup(r.group);
+        setMembers(r.members);
+        setEvents(r.events);
+      });
+    load();
+    // Ao vivo: quem entra pelo convite e eventos novos aparecem sem recarregar a página
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    supabase.auth.getSession().then(async ({ data }) => {
       if (!active) return;
-      setGroup(r.group);
-      setMembers(r.members);
-      setEvents(r.events);
+      if (data.session) await supabase.realtime.setAuth(data.session.access_token);
+      channel = supabase
+        .channel(`group-${id}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "group_members", filter: `group_id=eq.${id}` }, load)
+        .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: `group_id=eq.${id}` }, load)
+        .subscribe();
     });
+    // Celular que ficou em segundo plano pode perder a conexão ao vivo: recarrega ao voltar
+    const onVisible = () => document.visibilityState === "visible" && load();
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       active = false;
+      document.removeEventListener("visibilitychange", onVisible);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [id]);
 
