@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { CONTACT_INSTAGRAM, LegalPage } from "@/components/LegalPage";
+import { CONTACT_EMAIL, CONTACT_INSTAGRAM, LegalPage } from "@/components/LegalPage";
 
 export const metadata: Metadata = { title: "Termos de Uso · Rodizium" };
 
@@ -32,7 +32,8 @@ export default function Page() {
 
       <h2>Contato</h2>
       <p>
-        Dúvidas sobre estes termos: Instagram <a href={CONTACT_INSTAGRAM}>@rodizium.app</a>.
+        Dúvidas sobre estes termos: <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> ou Instagram{" "}
+        <a href={CONTACT_INSTAGRAM}>@rodizium.app</a>.
       </p>
     </LegalPage>
   );

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { CONTACT_INSTAGRAM, LegalPage } from "@/components/LegalPage";
+import { CONTACT_EMAIL, CONTACT_INSTAGRAM, LegalPage } from "@/components/LegalPage";
 
 export const metadata: Metadata = { title: "Política de Privacidade · Rodizium" };
 
@@ -59,7 +59,8 @@ export default function Page() {
 
       <h2>Contato</h2>
       <p>
-        Para qualquer pedido sobre seus dados, fale com a gente pelo Instagram <a href={CONTACT_INSTAGRAM}>@rodizium.app</a>.
+        Para qualquer pedido sobre seus dados, escreva para <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>. Também
+        respondemos pelo Instagram <a href={CONTACT_INSTAGRAM}>@rodizium.app</a>.
       </p>
 
       <h2>Mudanças nesta política</h2>

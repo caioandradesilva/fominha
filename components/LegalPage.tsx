@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Wordmark } from "@/components/Logo";
 
 export const CONTACT_INSTAGRAM = "https://instagram.com/rodizium.app";
+export const CONTACT_EMAIL = "contato@rodizium.com.br";
 
 /** Moldura simples para as páginas públicas de Privacidade e Termos. */
 export function LegalPage({ title, updated, children }: { title: string; updated: string; children: ReactNode }) {
@@ -22,6 +23,7 @@ export function LegalPage({ title, updated, children }: { title: string; updated
         <footer className="mt-6 flex gap-4 border-t border-line pt-5 text-sm text-muted">
           <Link href="/privacidade">Privacidade</Link>
           <Link href="/termos">Termos</Link>
+          <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
           <a href={CONTACT_INSTAGRAM}>@rodizium.app</a>
         </footer>
       </div>
