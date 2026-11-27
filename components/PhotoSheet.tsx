@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PieceArt, QUICK_PIECES } from "@/components/QuickPieces";
 import { primaryButton, secondaryButton } from "@/components/ui";
+import { agoLabel, findDuplicate, type Candidate } from "@/lib/duplicates";
 import { compressPhoto } from "@/lib/photo";
 import { getSupabase } from "@/lib/supabase/client";
 
@@ -33,11 +34,16 @@ const BIG_PLATE = 10;
 export function PhotoSheet({
   eventId,
   userId,
+  candidates,
+  nameOf,
   onClose,
   onSaved,
 }: {
   eventId: string;
   userId: string;
+  /** Barcas do evento e pratos com foto da própria pessoa, para o aviso de duplicata. */
+  candidates: Candidate[];
+  nameOf: (uid: string) => string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -50,13 +56,24 @@ export function PhotoSheet({
   const [aiFailed, setAiFailed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Id do registro parecido que a pessoa já disse ser outra barca/prato. */
+  const [dupOk, setDupOk] = useState<string | null>(null);
+  const [signed, setSigned] = useState<{ path: string; url: string } | null>(null);
 
   useEffect(() => () => {
     if (preview) URL.revokeObjectURL(preview);
   }, [preview]);
 
+  /** Apaga a foto enviada que não virou registro (a política do bucket só deixa apagar fotos sem uso). */
+  function dropUpload() {
+    if (photoPath) getSupabase().storage.from("plates").remove([photoPath]).catch(() => {});
+  }
+
   async function onPhoto(file: File | undefined) {
     if (!file) return;
+    dropUpload();
+    setPhotoPath(null);
+    setDupOk(null);
     setError(null);
     setAi(undefined);
     setAiFailed(null);
@@ -101,8 +118,37 @@ export function PhotoSheet({
       return next;
     });
 
+  const dup = useMemo(
+    () => (step === "review" && total > 0 ? findDuplicate(counts, candidates) : null),
+    [step, total, counts, candidates],
+  );
+  const dupPending = dup !== null && dup.id !== dupOk;
+  const dupPhoto = dup?.photoPath ?? null;
+
+  const dupUrl = signed && signed.path === dupPhoto ? signed.url : null;
+
+  useEffect(() => {
+    if (!dupPhoto) return;
+    let active = true;
+    getSupabase()
+      .storage.from("plates")
+      .createSignedUrl(dupPhoto, 600)
+      .then(({ data }) => {
+        if (active && data?.signedUrl) setSigned({ path: dupPhoto, url: data.signedUrl });
+      });
+    return () => {
+      active = false;
+    };
+  }, [dupPhoto]);
+
+  function discardAsSame() {
+    dropUpload();
+    onClose();
+  }
+
   async function save() {
     if (total === 0) return setError("Nenhuma peça marcada. Ajuste antes de confirmar.");
+    if (dupPending) return;
     setBusy(true);
     setError(null);
     const supabase = getSupabase();
@@ -218,6 +264,44 @@ export function PhotoSheet({
               <img src={preview} alt="Foto tirada" className="h-36 w-full shrink-0 rounded-2xl object-cover" />
             )}
 
+            {dupPending && dup && (
+              <div role="alert" className="flex flex-col gap-3 rounded-2xl border-2 border-gold bg-gold-soft p-3.5">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[15px] font-bold text-ink">Já não registraram isso?</span>
+                  <span className="text-[13px] text-[#5c3e00]">
+                    {dup.userId === userId ? "Você" : nameOf(dup.userId)} registrou {dup.kind === "barca" ? "uma barca parecida" : "um prato parecido"}{" "}
+                    {agoLabel(dup.createdAt)}: {describe(dup.counts)}.
+                  </span>
+                </div>
+                {(preview || dupUrl) && (
+                  <div className="flex gap-2">
+                    {[
+                      { src: preview, label: "Sua foto" },
+                      { src: dupUrl, label: `Foto de ${dup.userId === userId ? "você" : nameOf(dup.userId)}` },
+                    ].map((p) => (
+                      <figure key={p.label} className="m-0 flex flex-1 flex-col gap-1">
+                        {p.src ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.src} alt={p.label} className="h-24 w-full rounded-xl object-cover" />
+                        ) : (
+                          <div className="h-24 w-full rounded-xl bg-[#efe4c4]" />
+                        )}
+                        <figcaption className="text-[11px] font-semibold text-[#5c3e00]">{p.label}</figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={discardAsSame} className="h-11 flex-1 rounded-xl bg-ink text-sm font-semibold text-white">
+                    É a mesma
+                  </button>
+                  <button onClick={() => setDupOk(dup.id)} className="h-11 flex-1 rounded-xl border border-[#d9c48f] bg-white text-sm font-semibold text-ink">
+                    Chegou outra
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-col gap-2">
               <span className="text-sm font-semibold">De quem são essas peças?</span>
               <div className="flex gap-2">
@@ -278,8 +362,8 @@ export function PhotoSheet({
             </div>
 
             {error && <p className="text-center text-sm text-tomato-dark">{error}</p>}
-            <button onClick={save} disabled={busy} className={primaryButton}>
-              {busy ? "Salvando…" : dest === "meu" ? `Somar ${total} ${total === 1 ? "peça" : "peças"} para mim` : `Registrar barca da mesa · ${total} peças`}
+            <button onClick={save} disabled={busy || dupPending} className={primaryButton + (dupPending ? " opacity-50" : "")}>
+              {busy ? "Salvando…" : dupPending ? "Responda a pergunta acima" : dest === "meu" ? `Somar ${total} ${total === 1 ? "peça" : "peças"} para mim` : `Registrar barca da mesa · ${total} peças`}
             </button>
             {photoInput("Tirar outra foto", false)}
           </>
@@ -287,4 +371,14 @@ export function PhotoSheet({
       </div>
     </div>
   );
+}
+
+/** "20 Uramaki", "6 Joe e 6 Uramaki", "12 Sashimi, 4 Joe e mais". */
+function describe(counts: Record<string, number>) {
+  const parts = Object.entries(counts)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${n} ${k}`);
+  if (parts.length <= 2) return parts.join(" e ");
+  return `${parts.slice(0, 2).join(", ")} e mais`;
 }

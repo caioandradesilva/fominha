@@ -8,6 +8,7 @@ import type { Profile } from "@/lib/auth";
 import { formatWhen, timeAgo } from "@/lib/format";
 import { QuickPanel } from "@/components/QuickPieces";
 import { BoatSheet, type Boat } from "@/components/BoatSheet";
+import type { Candidate } from "@/lib/duplicates";
 import { PhotoSheet } from "@/components/PhotoSheet";
 import { getSupabase } from "@/lib/supabase/client";
 
@@ -26,6 +27,7 @@ type Entry = {
   user_id: string;
   count_final: number;
   created_at: string;
+  photo_path?: string | null;
   ai_result?: { fonte?: string; por_tipo?: Record<string, number> } | null;
 };
 type Score = { userId: string; name: string; total: number; plates: number };
@@ -59,7 +61,7 @@ async function fetchBoats(eventId: string): Promise<Boat[]> {
 async function fetchEntries(eventId: string): Promise<Entry[]> {
   const { data } = await getSupabase()
     .from("entries")
-    .select("id, user_id, count_final, created_at, ai_result")
+    .select("id, user_id, count_final, created_at, photo_path, ai_result")
     .eq("event_id", eventId)
     .order("created_at", { ascending: false });
   return (data as Entry[] | null) ?? [];
@@ -192,6 +194,15 @@ function EventView({ profile }: { profile: Profile }) {
     const known = new Set(members.map((m) => m.user_id));
     return entries.some((e) => !known.has(e.user_id)) || boats.some((b) => !known.has(b.created_by));
   }, [members, entries, boats]);
+  const dupCandidates = useMemo<Candidate[]>(
+    () => [
+      ...boats.map((b) => ({ id: b.id, kind: "barca" as const, userId: b.created_by, createdAt: b.created_at, counts: b.counts, photoPath: b.photo_path })),
+      ...entries
+        .filter((e) => e.user_id === profile.id && e.ai_result?.fonte === "foto" && e.ai_result.por_tipo)
+        .map((e) => ({ id: e.id, kind: "prato" as const, userId: e.user_id, createdAt: e.created_at, counts: e.ai_result!.por_tipo!, photoPath: e.photo_path ?? null })),
+    ],
+    [boats, entries, profile.id],
+  );
   useEffect(() => {
     if (!groupId || !hasUnknown) return;
     let active = true;
@@ -345,6 +356,8 @@ function EventView({ profile }: { profile: Profile }) {
         <PhotoSheet
           eventId={id}
           userId={profile.id}
+          candidates={dupCandidates}
+          nameOf={nameOf}
           onClose={() => setSheetOpen(false)}
           onSaved={() => {
             fetchEntries(id).then(setEntries);
