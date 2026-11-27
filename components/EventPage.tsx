@@ -3,12 +3,12 @@
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SignedIn, Splash } from "@/components/SignedIn";
-import { Avatar, BackLink, Screen, StatusPill, primaryButton, secondaryButton } from "@/components/ui";
+import { Avatar, BackLink, Screen, StatusPill, primaryButton } from "@/components/ui";
 import type { Profile } from "@/lib/auth";
 import { formatWhen, timeAgo } from "@/lib/format";
-import { compressPhoto } from "@/lib/photo";
 import { QuickPanel } from "@/components/QuickPieces";
 import { BoatSheet, type Boat } from "@/components/BoatSheet";
+import { PhotoSheet } from "@/components/PhotoSheet";
 import { getSupabase } from "@/lib/supabase/client";
 
 type EventRow = {
@@ -229,21 +229,6 @@ function EventView({ profile }: { profile: Profile }) {
     await setStatus("closed");
   }
 
-  async function addPlate(plate: NewPlate) {
-    const { error } = await getSupabase()
-      .from("entries")
-      .insert({
-        event_id: id,
-        user_id: profile.id,
-        count_final: plate.count,
-        photo_path: plate.photoPath ?? null,
-        count_ai: plate.ai?.total ?? null,
-        ai_result: plate.ai ?? null,
-      });
-    if (!error) setEntries(await fetchEntries(id));
-    return !error;
-  }
-
   // Registro rápido: cada toque vira +1 na hora (otimista) e o placar de todos atualiza pelo Realtime.
   async function quickAdd(tipo: string) {
     if (remaining && tipo !== "Outra" && (remaining[tipo] ?? 0) <= 0) {
@@ -325,7 +310,6 @@ function EventView({ profile }: { profile: Profile }) {
               boatCounts={boatCounts}
               boatTotal={boatTotal}
               onTap={quickAdd}
-              onBoat={() => setBoatSheet({})}
               toast={toast}
               onUndoToast={undoToast}
             />
@@ -341,7 +325,7 @@ function EventView({ profile }: { profile: Profile }) {
                 <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
                 <circle cx="12" cy="13.5" r="3.5" />
               </svg>
-              Foto do prato
+              Fotografar
             </button>
           </div>
         </div>
@@ -358,7 +342,15 @@ function EventView({ profile }: { profile: Profile }) {
       )}
 
       {sheetOpen && (
-        <PlateSheet eventId={id} userId={profile.id} onClose={() => setSheetOpen(false)} onConfirm={addPlate} />
+        <PhotoSheet
+          eventId={id}
+          userId={profile.id}
+          onClose={() => setSheetOpen(false)}
+          onSaved={() => {
+            fetchEntries(id).then(setEntries);
+            fetchBoats(id).then(setBoats);
+          }}
+        />
       )}
     </>
   );
@@ -599,249 +591,5 @@ function Stat({ value, label }: { value: string; label: string }) {
       <span className="text-xl font-bold">{value}</span>
       <span className="text-xs text-muted">{label}</span>
     </div>
-  );
-}
-
-type AiResult = {
-  total: number;
-  por_tipo: Record<string, number>;
-  confianca: "alta" | "media" | "baixa";
-  observacao?: string;
-};
-type NewPlate = { count: number; photoPath?: string; ai?: AiResult };
-
-type SheetStep = "choose" | "counting" | "review" | "manual";
-
-function PlateSheet({
-  eventId,
-  userId,
-  onClose,
-  onConfirm,
-}: {
-  eventId: string;
-  userId: string;
-  onClose: () => void;
-  onConfirm: (plate: NewPlate) => Promise<boolean>;
-}) {
-  const [step, setStep] = useState<SheetStep>("choose");
-  const [count, setCount] = useState(8);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [photoPath, setPhotoPath] = useState<string | undefined>();
-  const [ai, setAi] = useState<AiResult | undefined>();
-  const [aiFailed, setAiFailed] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => () => {
-    if (preview) URL.revokeObjectURL(preview);
-  }, [preview]);
-
-  async function onPhoto(file: File | undefined) {
-    if (!file) return;
-    setError(null);
-    setAi(undefined);
-    setAiFailed(null);
-    setStep("counting");
-    try {
-      const blob = await compressPhoto(file);
-      setPreview(URL.createObjectURL(blob));
-      const path = `${eventId}/${userId}/${crypto.randomUUID()}.jpg`;
-      const supabase = getSupabase();
-      const { error: upErr } = await supabase.storage.from("plates").upload(path, blob, { contentType: "image/jpeg" });
-      if (upErr) throw new Error("upload");
-      // Garante que o servidor receba uma sessão válida (renova o token se tiver expirado)
-      await supabase.auth.getSession();
-      setPhotoPath(path);
-
-      const res = await fetch("/api/contar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId, path }),
-      });
-      if (!res.ok) {
-        const info = (await res.json().catch(() => ({}))) as { code?: string; detail?: string };
-        const stop = info.detail?.match(/stop=(\w+)/)?.[1];
-        throw new Error(`ai:${res.status}:${info.code ?? "?"}${stop ? `:${stop}` : ""}`);
-      }
-      const result = (await res.json()) as AiResult;
-      setAi(result);
-      setCount(Math.max(1, Math.min(60, result.total || 1)));
-    } catch (e) {
-      // Sem internet ou IA fora do ar: segue no ajuste manual (a foto fica salva se o upload deu certo)
-      const msg = (e as Error).message || "erro";
-      setAiFailed(msg);
-      if (msg === "upload") setPhotoPath(undefined);
-    }
-    setStep("review");
-  }
-
-  async function confirm() {
-    setBusy(true);
-    setError(null);
-    const ok = await onConfirm({ count, photoPath, ai });
-    if (ok) onClose();
-    else {
-      setError("Não salvou. Confira a internet e tente de novo.");
-      setBusy(false);
-    }
-  }
-
-  const stepCount = (d: number) => setCount((c) => Math.min(60, Math.max(1, c + d)));
-  const adjusted = ai && count !== ai.total;
-
-  const photoInput = (label: string, primary: boolean) => (
-    <label className={primary ? primaryButton + " cursor-pointer gap-2" : secondaryButton + " cursor-pointer"}>
-      {primary && (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
-          <circle cx="12" cy="13.5" r="3.5" />
-        </svg>
-      )}
-      {label}
-      <input
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={(e) => {
-          onPhoto(e.target.files?.[0]);
-          e.target.value = "";
-        }}
-      />
-    </label>
-  );
-
-  const stepper = (
-    <div className="flex items-center justify-between">
-      <button onClick={() => stepCount(-1)} aria-label="Diminuir uma peça" className="flex h-14 w-14 items-center justify-center rounded-full border border-line bg-white text-2xl">
-        −
-      </button>
-      <div className="flex flex-col items-center">
-        <span className="font-display text-7xl leading-none font-extrabold">{count}</span>
-        <span className="text-sm text-muted">peças</span>
-      </div>
-      <button onClick={() => stepCount(1)} aria-label="Somar uma peça" className="flex h-14 w-14 items-center justify-center rounded-full border border-line bg-white text-2xl">
-        +
-      </button>
-    </div>
-  );
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end bg-[rgba(26,23,20,0.55)]" onClick={step === "counting" ? undefined : onClose}>
-      <div
-        role="dialog"
-        aria-label="Registrar prato"
-        className="mx-auto flex max-h-[92dvh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-t-3xl bg-cream px-5 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mx-auto h-1.5 w-10 shrink-0 rounded-full bg-line-strong" />
-
-        {step === "choose" && (
-          <>
-            <h2 className="font-display text-2xl font-extrabold">Registrar prato</h2>
-            <p className="-mt-2 text-sm text-muted">Tire a foto de cima, com o prato inteiro aparecendo, antes de comer.</p>
-            {photoInput("Fotografar prato", true)}
-            <button onClick={() => setStep("manual")} className={secondaryButton}>
-              Contar sem foto
-            </button>
-            <button onClick={onClose} className="h-10 text-sm font-semibold text-muted">
-              Cancelar
-            </button>
-          </>
-        )}
-
-        {step === "counting" && (
-          <div className="flex flex-col items-center gap-4 py-6">
-            {preview && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={preview} alt="Foto do prato" className="h-56 w-full rounded-2xl object-cover" />
-            )}
-            <div className="flex items-center gap-3">
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-tomato border-t-transparent" />
-              <span className="font-semibold">Contando as peças…</span>
-            </div>
-          </div>
-        )}
-
-        {step === "review" && (
-          <>
-            {preview && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={preview} alt="Foto do prato" className="h-48 w-full shrink-0 rounded-2xl object-cover" />
-            )}
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-muted">{ai ? "A IA contou" : "Ajuste a contagem"}</span>
-              {ai && <ConfidencePill level={ai.confianca} />}
-            </div>
-            {stepper}
-            {ai && Object.keys(ai.por_tipo).length > 0 && (
-              <div className="flex flex-wrap justify-center gap-2">
-                {Object.entries(ai.por_tipo).map(([k, v]) => (
-                  <span key={k} className="rounded-full border border-line bg-white px-3 py-1 text-[13px] font-medium">
-                    {v} {k}
-                  </span>
-                ))}
-              </div>
-            )}
-            {ai?.confianca === "baixa" && (
-              <p className="rounded-xl bg-gold-soft px-3 py-2 text-[13px] text-[#5c3e00]">
-                {ai.observacao || "Não deu para ver bem."} Confira o número ou tire outra foto de cima, com o prato inteiro.
-              </p>
-            )}
-            {aiFailed && (
-              <p className="rounded-xl bg-gold-soft px-3 py-2 text-[13px] text-[#5c3e00]">
-                Não consegui contar agora. Ajuste o número manualmente.
-                <span className="mt-1 block text-[11px] opacity-70">Código: {aiFailed}</span>
-              </p>
-            )}
-            {adjusted && <p className="text-center text-xs text-muted">Ajustado de {ai.total} para {count} · o grupo vê o ajuste</p>}
-            {error && <p className="text-center text-sm text-tomato-dark">{error}</p>}
-            <button onClick={confirm} disabled={busy} className={primaryButton}>
-              {busy ? "Salvando…" : "Confirmar"}
-            </button>
-            {photoInput("Tirar outra foto", false)}
-          </>
-        )}
-
-        {step === "manual" && (
-          <>
-            <h2 className="font-display text-2xl font-extrabold">Quantas peças no prato?</h2>
-            {stepper}
-            <div className="flex justify-center gap-2">
-              {[4, 6, 8, 10, 12].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => setCount(n)}
-                  className={`h-9 rounded-full border px-3.5 text-sm font-semibold ${count === n ? "border-ink bg-ink text-white" : "border-line-strong bg-white"}`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-            {error && <p className="text-center text-sm text-tomato-dark">{error}</p>}
-            <button onClick={confirm} disabled={busy} className={primaryButton}>
-              {busy ? "Salvando…" : "Confirmar"}
-            </button>
-            <button onClick={() => setStep("choose")} className="h-10 text-sm font-semibold text-muted">
-              Voltar
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ConfidencePill({ level }: { level: "alta" | "media" | "baixa" }) {
-  const map = {
-    alta: ["Confiança alta", "#e3f1e6", "#1e5b2e"],
-    media: ["Confiança média", "#fdf0d2", "#5c3e00"],
-    baixa: ["Confiança baixa", "#fbe3da", "#a82e0e"],
-  } as const;
-  const [label, bg, fg] = map[level];
-  return (
-    <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: bg, color: fg }}>
-      {label}
-    </span>
   );
 }

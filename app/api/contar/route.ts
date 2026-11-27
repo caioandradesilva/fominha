@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
   const type = file.type === "image/png" || file.type === "image/webp" ? file.type : "image/jpeg";
   try {
-    const result = await countPieces(Buffer.from(await file.arrayBuffer()), type, body.mode === "barca" ? "barca" : "prato");
+    const result = await countPieces(Buffer.from(await file.arrayBuffer()), type, body.mode === "barca" || body.mode === "auto" ? body.mode : "prato");
     return NextResponse.json(result);
   } catch (e) {
     const code = e instanceof CountError ? e.code : "unknown";

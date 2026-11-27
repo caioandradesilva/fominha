@@ -115,7 +115,6 @@ export function QuickPanel({
   boatCounts,
   boatTotal,
   onTap,
-  onBoat,
   toast,
   onUndoToast,
 }: {
@@ -126,7 +125,6 @@ export function QuickPanel({
   boatCounts: Record<string, number> | null;
   boatTotal: number;
   onTap: (id: string) => void;
-  onBoat: () => void;
   toast: { label: string; failed?: boolean } | null;
   onUndoToast: () => void;
 }) {
@@ -146,15 +144,6 @@ export function QuickPanel({
               "Comeu da barca? Toque na peça"
             )}
           </span>
-        )}
-        {!toast && (
-          <button onClick={onBoat} className="flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-ink px-3 text-xs font-semibold text-white">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
-              <circle cx="12" cy="13.5" r="3.5" />
-            </svg>
-            {remaining ? "Nova barca" : "Foto da barca"}
-          </button>
         )}
         {toast && (
           <span className={`flex w-full items-center justify-between gap-2 text-[13px] font-semibold ${toast.failed ? "text-tomato-dark" : "text-ok"}`}>

@@ -5,6 +5,8 @@ export type CountResult = {
   por_tipo: Record<string, number>;
   confianca: "alta" | "media" | "baixa";
   observacao?: string;
+  /** Só no modo "auto": a IA sugere se a foto é de um prato individual ("meu") ou de uma barca da mesa ("mesa") */
+  destino?: "meu" | "mesa";
 };
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
@@ -60,6 +62,30 @@ const BOAT_SCHEMA = {
   additionalProperties: false,
 };
 
+/** Modo automático (botão único de foto): conta nos 8 tipos do painel e sugere o destino. */
+const AUTO_PROMPT = `Esta é uma foto tirada à mesa num rodízio (normalmente sushi). Pode ser:
+- o PRATO de uma pessoa (prato individual, geralmente com poucas peças, misturadas), ou
+- uma BARCA/TRAVESSA que veio para a mesa ser dividida (barca de madeira, travessa grande, peças em fileiras, muitas vezes várias peças do mesmo tipo).
+1) Conte TODAS as peças de comida e classifique cada uma em exatamente um destes tipos:
+- Uramaki: enrolado com o arroz por fora.
+- Hot roll: enrolado empanado e frito.
+- Niguiri: bolinho de arroz com uma fatia por cima.
+- Sashimi: fatia de peixe crua sem arroz, cortada grossa (cada fatia conta 1). Carpaccio (lâminas bem finas, espalhadas no prato, com molho) NÃO é sashimi: classifique como Outra.
+- Hossomaki: enrolado fino com a alga por fora.
+- Joe: bolinho de arroz envolto por uma fatia de salmão.
+- Temaki: cone de alga.
+- Outra: qualquer outra comida (carpaccio, gunkan, harumaki, pratos quentes, sobremesa etc.).
+Regras de contagem: cada peça conta 1; peças sobrepostas ou em fileira contam separadamente; NÃO conte gengibre, wasabi, molho, folhas, decoração, hashi ou o recipiente. Uma porção servida numa tigela ou um prato quente conta 1.
+2) Em destino, responda "mesa" se for barca/travessa para dividir, ou "meu" se for o prato de uma pessoa.
+Se a foto estiver cortada, borrada ou com peças escondidas, use confiança "baixa" e diga onde em observacao. Se não houver comida, total 0, confiança "baixa".
+total deve ser a soma de por_tipo. Em observacao, uma frase curta em português (pode ser vazia).`;
+
+const AUTO_SCHEMA = {
+  ...BOAT_SCHEMA,
+  properties: { ...BOAT_SCHEMA.properties, destino: { type: "string", enum: ["meu", "mesa"] } },
+  required: [...BOAT_SCHEMA.required, "destino"],
+};
+
 // Saída estruturada: a API garante que a resposta segue exatamente este esquema.
 const SCHEMA = {
   type: "object",
@@ -86,6 +112,7 @@ type RawAnswer = {
   por_tipo?: { tipo?: string; quantidade?: number }[];
   confianca?: string;
   observacao?: string;
+  destino?: string;
 };
 
 export class CountError extends Error {
@@ -122,13 +149,13 @@ async function askOnce(
     message = await client.messages.create({
       model: MODEL,
       max_tokens: maxTokens,
-      output_config: { format: { type: "json_schema", schema: mode === "barca" ? BOAT_SCHEMA : SCHEMA } },
+      output_config: { format: { type: "json_schema", schema: mode === "auto" ? AUTO_SCHEMA : mode === "barca" ? BOAT_SCHEMA : SCHEMA } },
       messages: [
         {
           role: "user",
           content: [
             { type: "image", source: { type: "base64", media_type: mediaType, data: image } },
-            { type: "text", text: mode === "barca" ? BOAT_PROMPT : PROMPT },
+            { type: "text", text: mode === "auto" ? AUTO_PROMPT : mode === "barca" ? BOAT_PROMPT : PROMPT },
           ],
         },
       ],
@@ -148,7 +175,7 @@ async function askOnce(
   return raw;
 }
 
-export type CountMode = "prato" | "barca";
+export type CountMode = "prato" | "barca" | "auto";
 
 /** Manda a foto para a API de visão e devolve a contagem sugerida. */
 export async function countPieces(
@@ -160,7 +187,7 @@ export async function countPieces(
   const data = image.toString("base64");
   let raw: RawAnswer;
   try {
-    raw = await askOnce(client, data, mediaType, mode === "barca" ? 3000 : 2000, mode);
+    raw = await askOnce(client, data, mediaType, mode === "prato" ? 2000 : 3000, mode);
   } catch (e) {
     // Resposta fora do formato: tenta mais uma vez com mais espaço antes de desistir
     if (!(e instanceof CountError) || e.code !== "ai_format") throw e;
@@ -173,11 +200,12 @@ export async function countPieces(
     const n = Math.round(Number(item.quantidade) || 0);
     if (item.tipo && n > 0) por_tipo[item.tipo] = (por_tipo[item.tipo] ?? 0) + n;
   }
-  const cap = mode === "barca" ? 500 : 200;
-  // Na barca o total é sempre a soma dos tipos (é o que o app usa como saldo)
-  const rawTotal = mode === "barca" ? Object.values(por_tipo).reduce((a, b) => a + b, 0) : Number(raw.total) || 0;
+  const cap = mode === "prato" ? 200 : 500;
+  // Na barca e no modo automático o total é sempre a soma dos tipos (é o que o app usa como saldo)
+  const rawTotal = mode === "prato" ? Number(raw.total) || 0 : Object.values(por_tipo).reduce((a, b) => a + b, 0);
   const total = Math.max(0, Math.min(cap, Math.round(rawTotal)));
   const confianca = raw.confianca === "alta" || raw.confianca === "media" || raw.confianca === "baixa" ? raw.confianca : "baixa";
   const observacao = typeof raw.observacao === "string" && raw.observacao.trim() ? raw.observacao.slice(0, 280) : undefined;
-  return { total, por_tipo, confianca, observacao };
+  const destino = mode === "auto" ? (raw.destino === "mesa" ? "mesa" : "meu") : undefined;
+  return { total, por_tipo, confianca, observacao, ...(destino ? { destino } : {}) };
 }
