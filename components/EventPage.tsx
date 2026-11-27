@@ -9,6 +9,9 @@ import { formatWhen, timeAgo } from "@/lib/format";
 import { QuickPanel } from "@/components/QuickPieces";
 import { BoatSheet, type Boat } from "@/components/BoatSheet";
 import type { Candidate } from "@/lib/duplicates";
+import { entryPoints, isPoints, normalizeScoring, scoringSummary, unitLabel, type Scoring } from "@/lib/scoring";
+import { LeaderCard, RankList } from "@/components/RankList";
+import { StoryButton } from "@/components/StoryShare";
 import { EntryEditSheet, RecordsSheet, editNote, entryAction, type RecordEntry, type RecordsFilter } from "@/components/Records";
 import { PhotoSheet } from "@/components/PhotoSheet";
 import { getSupabase } from "@/lib/supabase/client";
@@ -20,17 +23,17 @@ type EventRow = {
   restaurant_name: string | null;
   starts_at: string | null;
   status: "scheduled" | "live" | "closed";
-  groups: { name: string } | null;
+  groups: { name: string; scoring?: unknown } | null;
 };
 type Member = { user_id: string; role: "admin" | "member"; profiles: { nickname: string } | null };
 type Entry = RecordEntry;
-type Score = { userId: string; name: string; total: number; plates: number };
+type Score = { userId: string; name: string; total: number; pieces: number; plates: number };
 
 async function fetchEvent(id: string) {
   const supabase = getSupabase();
   const { data: ev } = await supabase
     .from("events")
-    .select("id, group_id, name, restaurant_name, starts_at, status, groups(name)")
+    .select("id, group_id, name, restaurant_name, starts_at, status, groups(name, scoring)")
     .eq("id", id)
     .maybeSingle();
   if (!ev) return { event: null, members: [], entries: [] };
@@ -134,19 +137,21 @@ function EventView({ profile }: { profile: Profile }) {
     };
   }, [id]);
 
+  const scoring = useMemo<Scoring>(() => normalizeScoring(event?.groups?.scoring), [event?.groups?.scoring]);
   const scores = useMemo<Score[]>(() => {
     const map = new Map<string, Score>();
     for (const m of members) {
-      map.set(m.user_id, { userId: m.user_id, name: m.profiles?.nickname ?? "?", total: 0, plates: 0 });
+      map.set(m.user_id, { userId: m.user_id, name: m.profiles?.nickname ?? "?", total: 0, pieces: 0, plates: 0 });
     }
     for (const e of entries) {
-      const s = map.get(e.user_id) ?? { userId: e.user_id, name: "?", total: 0, plates: 0 };
-      s.total += e.count_final;
+      const s = map.get(e.user_id) ?? { userId: e.user_id, name: "?", total: 0, pieces: 0, plates: 0 };
+      s.total += entryPoints(e, scoring);
+      s.pieces += e.count_final;
       s.plates += 1;
       map.set(e.user_id, s);
     }
-    return [...map.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
-  }, [members, entries]);
+    return [...map.values()].sort((a, b) => b.total - a.total || b.pieces - a.pieces || a.name.localeCompare(b.name));
+  }, [members, entries, scoring]);
 
   // Quantas peças de cada tipo EU registrei pelo registro rápido (aparece no canto de cada botão)
   const myCounts = useMemo(() => {
@@ -292,11 +297,13 @@ function EventView({ profile }: { profile: Profile }) {
         </div>
 
         {event.status === "scheduled" && (
-          <Lobby event={event} scores={scores} isAdmin={isAdmin} onStart={() => setStatus("live")} />
+          <Lobby event={event} scores={scores} scoring={scoring} isAdmin={isAdmin} onStart={() => setStatus("live")} />
         )}
         {event.status === "live" && (
           <Live
             scores={scores}
+            scoring={scoring}
+            event={event}
             entries={entries}
             meId={profile.id}
             nameOf={nameOf}
@@ -308,7 +315,7 @@ function EventView({ profile }: { profile: Profile }) {
             onEditBoat={(b) => setBoatSheet({ editing: b })}
           />
         )}
-        {event.status === "closed" && <Podium scores={scores} entries={entries} isAdmin={isAdmin} onOpenRecords={setRecords} />}
+        {event.status === "closed" && <Podium scores={scores} scoring={scoring} event={event} entries={entries} isAdmin={isAdmin} onOpenRecords={setRecords} />}
       </Screen>
 
       {event.status === "live" && (
@@ -390,7 +397,19 @@ function EventView({ profile }: { profile: Profile }) {
   );
 }
 
-function Lobby({ event, scores, isAdmin, onStart }: { event: EventRow; scores: Score[]; isAdmin: boolean; onStart: () => void }) {
+function Lobby({
+  event,
+  scores,
+  scoring,
+  isAdmin,
+  onStart,
+}: {
+  event: EventRow;
+  scores: Score[];
+  scoring: Scoring;
+  isAdmin: boolean;
+  onStart: () => void;
+}) {
   return (
     <>
       <div className="flex flex-col gap-1 rounded-2xl bg-ink px-5 py-4 text-white">
@@ -398,6 +417,11 @@ function Lobby({ event, scores, isAdmin, onStart }: { event: EventRow; scores: S
         <span className="text-lg font-bold">{formatWhen(event.starts_at)}</span>
         <span className="text-sm text-[#d9d3cb]">{event.restaurant_name ?? "Restaurante a combinar"}</span>
       </div>
+
+      <p className="rounded-xl bg-chip px-3 py-2 text-[13px] text-muted">
+        <span className="font-semibold text-ink">Pontuação:</span> {scoringSummary(scoring)}
+        {isAdmin && " · muda na página do grupo"}
+      </p>
 
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-bold">Quem está no grupo ({scores.length})</h2>
@@ -430,6 +454,8 @@ function Lobby({ event, scores, isAdmin, onStart }: { event: EventRow; scores: S
 
 function Live({
   scores,
+  scoring,
+  event,
   entries,
   meId,
   nameOf,
@@ -441,6 +467,8 @@ function Live({
   onEditBoat,
 }: {
   scores: Score[];
+  scoring: Scoring;
+  event: EventRow;
   entries: Entry[];
   meId: string;
   nameOf: (uid: string) => string;
@@ -453,29 +481,18 @@ function Live({
 }) {
   const leader = scores[0];
   const second = scores[1];
-  const max = Math.max(1, leader?.total ?? 1);
   const hasPlates = entries.length > 0;
 
   return (
     <>
       {hasPlates && leader && (
-        <div className="flex items-center gap-4 rounded-[20px] bg-ink px-5 py-4 text-white">
-          <Avatar id={leader.userId} name={leader.name} size={56} />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <span className="text-xs font-bold tracking-wider text-gold uppercase">Liderando</span>
-            <span className="truncate text-lg font-bold">{leader.userId === meId ? "Você" : leader.name}</span>
-            {second && leader.total > second.total && (
-              <span className="text-[13px] text-[#d9d3cb]">
-                {leader.total - second.total} {leader.total - second.total === 1 ? "peça" : "peças"} à frente
-              </span>
-            )}
-            {second && leader.total === second.total && <span className="text-[13px] text-[#d9d3cb]">Empatado!</span>}
-          </div>
-          <div className="flex flex-col items-end">
-            <span className="font-display text-[40px] leading-none font-extrabold">{leader.total}</span>
-            <span className="text-xs text-[#d9d3cb]">peças</span>
-          </div>
-        </div>
+        <LeaderCard
+          leader={leader}
+          second={second}
+          meId={meId}
+          unit={isPoints(scoring) ? "pontos" : "peças"}
+          gapLabel={(n) => `${n} ${unitLabel(scoring, n)}`}
+        />
       )}
 
       {!hasPlates && (
@@ -484,29 +501,9 @@ function Live({
         </p>
       )}
 
-      <div className="rounded-2xl border border-line bg-white px-4 py-1">
-        {scores.map((s, i) => (
-          <button
-            key={s.userId}
-            onClick={() => onOpenRecords(s.userId === meId ? "me" : s.userId)}
-            aria-label={`Ver registros de ${s.userId === meId ? "você" : s.name}`}
-            className={`flex h-11 w-full items-center gap-2.5 text-left ${i < scores.length - 1 ? "border-b border-[#f0ece6]" : ""}`}
-          >
-            <span className="w-5 text-[13px] font-bold text-muted">{i + 1}</span>
-            <span className="w-16 truncate text-sm font-semibold">{s.userId === meId ? "Você" : s.name}</span>
-            <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-[#f0ece6]">
-              <div
-                className="h-2.5 rounded-full transition-[width] duration-500"
-                style={{
-                  width: `${Math.round((s.total / max) * 100)}%`,
-                  background: i === 0 && s.total > 0 ? "#d33d15" : s.userId === meId ? "#1a1714" : "#c8bfb4",
-                }}
-              />
-            </div>
-            <span className="w-8 text-right text-[15px] font-bold">{s.total}</span>
-          </button>
-        ))}
-      </div>
+      <RankList scores={scores} meId={meId} onPick={(uid) => onOpenRecords(uid === meId ? "me" : uid)} />
+      {isPoints(scoring) && <p className="-mt-2 text-xs text-muted">Pontuação do grupo: {scoringSummary(scoring)}</p>}
+      {hasPlates && <StoryButton variant="parcial" event={event} scores={scores} scoring={scoring} entries={entries} />}
 
       {boats.length > 0 && (
         <section className="flex flex-col gap-2">
@@ -581,11 +578,15 @@ function Live({
 
 function Podium({
   scores,
+  scoring,
+  event,
   entries,
   isAdmin,
   onOpenRecords,
 }: {
   scores: Score[];
+  scoring: Scoring;
+  event: EventRow;
   entries: Entry[];
   isAdmin: boolean;
   onOpenRecords: (f: RecordsFilter) => void;
@@ -625,7 +626,9 @@ function Podium({
         <span className="text-xs font-bold tracking-widest text-tomato-dark uppercase">Campeão da noite</span>
         <span className="font-display text-[44px] leading-none font-extrabold">{first.name}</span>
         <span className="text-base text-muted">
-          {first.total} peças{second ? ` · ${first.total - second.total} a mais que ${second.name}` : ""}
+          {first.total} {unitLabel(scoring, first.total)}
+          {isPoints(scoring) ? ` (${first.pieces} peças)` : ""}
+          {second ? ` · ${first.total - second.total} a mais que ${second.name}` : ""}
         </span>
       </div>
 
@@ -653,6 +656,7 @@ function Podium({
         </div>
       )}
 
+      <StoryButton variant="final" event={event} scores={scores} scoring={scoring} entries={entries} />
       <button onClick={() => onOpenRecords(isAdmin ? "all" : "me")} className={secondaryButton}>
         {isAdmin ? "Conferir e corrigir registros" : "Ver meus registros"}
       </button>

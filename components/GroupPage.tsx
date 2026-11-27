@@ -7,16 +7,18 @@ import { SignedIn, Splash } from "@/components/SignedIn";
 import { Avatar, BackLink, Screen, StatusPill, primaryButton, secondaryButton, shareLink } from "@/components/ui";
 import type { Profile } from "@/lib/auth";
 import { formatWhen } from "@/lib/format";
+import { MAX_WEIGHT, MIN_WEIGHT, normalizeScoring, scoringSummary, type Scoring } from "@/lib/scoring";
+import { PieceArt, QUICK_PIECES } from "@/components/QuickPieces";
 import { getSupabase } from "@/lib/supabase/client";
 
-type Group = { id: string; name: string; invite_code: string; created_at: string };
+type Group = { id: string; name: string; invite_code: string; created_at: string; scoring?: unknown };
 type Member = { user_id: string; role: "admin" | "member"; profiles: { nickname: string } | null };
 type EventRow = { id: string; name: string; status: "scheduled" | "live" | "closed"; starts_at: string | null; restaurant_name: string | null };
 
 async function fetchGroup(id: string) {
   const supabase = getSupabase();
   const [g, m, e] = await Promise.all([
-    supabase.from("groups").select("id, name, invite_code, created_at").eq("id", id).maybeSingle(),
+    supabase.from("groups").select("id, name, invite_code, created_at, scoring").eq("id", id).maybeSingle(),
     supabase.from("group_members").select("user_id, role, profiles(nickname)").eq("group_id", id).order("joined_at"),
     supabase
       .from("events")
@@ -44,6 +46,7 @@ function GroupLoader({ profile }: { profile: Profile }) {
   const [events, setEvents] = useState<EventRow[]>([]);
   const [shareMsg, setShareMsg] = useState<string | null>(null);
   const [managing, setManaging] = useState<Member | null>(null);
+  const [editingScore, setEditingScore] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -170,6 +173,23 @@ function GroupLoader({ profile }: { profile: Profile }) {
       </section>
 
       <section className="flex flex-col gap-2">
+        <h2 className="text-[15px] font-bold">Pontuação</h2>
+        <button
+          onClick={() => isAdmin && setEditingScore(true)}
+          disabled={!isAdmin}
+          className="flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-left disabled:cursor-default"
+        >
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-sm font-semibold">
+              {normalizeScoring(group.scoring).modo === "pontos" ? "Pontos por peça" : "Contar peças"}
+            </span>
+            <span className="truncate text-xs text-muted">{scoringSummary(normalizeScoring(group.scoring))}</span>
+          </span>
+          {isAdmin && <span className="text-sm font-semibold text-tomato-dark">Mudar</span>}
+        </button>
+      </section>
+
+      <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-bold">Membros</h2>
         <div className="grid grid-cols-4 gap-3">
           {members.map((m) => {
@@ -200,6 +220,15 @@ function GroupLoader({ profile }: { profile: Profile }) {
           <p className="text-xs text-muted">Toque em alguém para tornar admin. Admins começam e encerram eventos e corrigem registros de qualquer pessoa.</p>
         )}
       </section>
+
+      {editingScore && (
+        <ScoringSheet
+          groupId={group.id}
+          initial={normalizeScoring(group.scoring)}
+          onClose={() => setEditingScore(false)}
+          onSaved={(sc) => setGroup({ ...group, scoring: sc })}
+        />
+      )}
 
       {managing && (
         <MemberSheet
@@ -290,6 +319,109 @@ function MemberSheet({
           </button>
         )}
         {error && <p className="text-center text-sm text-tomato-dark">{error}</p>}
+        <button onClick={onClose} className="h-10 text-sm font-semibold text-muted">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ScoringSheet({
+  groupId,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  groupId: string;
+  initial: Scoring;
+  onClose: () => void;
+  onSaved: (s: Scoring) => void;
+}) {
+  const [modo, setModo] = useState<Scoring["modo"]>(initial.modo);
+  const [pesos, setPesos] = useState<Record<string, number>>(() => {
+    const base: Record<string, number> = { Temaki: 3 };
+    return initial.modo === "pontos" ? { ...initial.pesos } : base;
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const bump = (id: string, d: number) =>
+    setPesos((p) => ({ ...p, [id]: Math.min(MAX_WEIGHT, Math.max(MIN_WEIGHT, (p[id] ?? 1) + d)) }));
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    const clean: Record<string, number> = {};
+    for (const [k, v] of Object.entries(pesos)) if (v !== 1) clean[k] = v;
+    const scoring: Scoring = modo === "pontos" ? { modo, pesos: clean } : { modo: "pecas" };
+    const { error: err } = await getSupabase().from("groups").update({ scoring }).eq("id", groupId);
+    setBusy(false);
+    if (err) return setError("Não salvou. Só admins mudam a pontuação.");
+    onSaved(scoring);
+    onClose();
+  }
+
+  const option = (value: Scoring["modo"], title: string, sub: string) => {
+    const on = modo === value;
+    return (
+      <button
+        type="button"
+        aria-pressed={on}
+        onClick={() => setModo(value)}
+        className={`flex flex-1 flex-col items-start gap-0.5 rounded-2xl border-2 px-3.5 py-2.5 text-left ${on ? "border-ink bg-ink text-white" : "border-line bg-white text-ink"}`}
+      >
+        <span className="text-[15px] font-bold">{title}</span>
+        <span className={`text-xs ${on ? "text-[#d8d1c8]" : "text-muted"}`}>{sub}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-[rgba(26,23,20,0.55)]" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-label="Pontuação do grupo"
+        className="mx-auto flex max-h-[92dvh] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-t-3xl bg-cream px-5 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto h-1.5 w-10 shrink-0 rounded-full bg-line-strong" />
+        <div className="flex flex-col gap-1">
+          <h2 className="font-display text-2xl font-extrabold">Pontuação do grupo</h2>
+          <p className="text-sm text-muted">Vale para todos os eventos do grupo, inclusive os que já aconteceram.</p>
+        </div>
+        <div className="flex gap-2">
+          {option("pecas", "Contar peças", "1 peça = 1 ponto")}
+          {option("pontos", "Pontos por peça", "Cada tipo vale de 1 a 5")}
+        </div>
+
+        {modo === "pontos" && (
+          <div className="rounded-2xl border border-line bg-white px-3">
+            {QUICK_PIECES.map((p, i) => {
+              const n = pesos[p.id] ?? 1;
+              return (
+                <div key={p.id} className={`flex h-13 items-center gap-3 ${i < QUICK_PIECES.length - 1 ? "border-b border-[#f0ece6]" : ""}`}>
+                  <PieceArt id={p.id} size={28} />
+                  <span className="flex-1 text-[15px] font-semibold">{p.label}</span>
+                  <button onClick={() => bump(p.id, -1)} disabled={n <= MIN_WEIGHT} aria-label={`Menos um ponto para ${p.label}`} className="flex h-9 w-9 items-center justify-center rounded-full border border-line text-lg disabled:opacity-30">
+                    −
+                  </button>
+                  <span className="w-14 text-center text-[15px] font-bold">
+                    {n} {n === 1 ? "pt" : "pts"}
+                  </span>
+                  <button onClick={() => bump(p.id, 1)} disabled={n >= MAX_WEIGHT} aria-label={`Mais um ponto para ${p.label}`} className="flex h-9 w-9 items-center justify-center rounded-full border border-line text-lg disabled:opacity-30">
+                    +
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {error && <p className="text-center text-sm text-tomato-dark">{error}</p>}
+        <button onClick={save} disabled={busy} className={primaryButton}>
+          {busy ? "Salvando…" : "Salvar pontuação"}
+        </button>
         <button onClick={onClose} className="h-10 text-sm font-semibold text-muted">
           Cancelar
         </button>
