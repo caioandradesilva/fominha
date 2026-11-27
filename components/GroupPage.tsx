@@ -43,6 +43,7 @@ function GroupLoader({ profile }: { profile: Profile }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [shareMsg, setShareMsg] = useState<string | null>(null);
+  const [managing, setManaging] = useState<Member | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -96,10 +97,13 @@ function GroupLoader({ profile }: { profile: Profile }) {
     setShareMsg(result === "copied" ? "Link copiado! Cole no grupo do WhatsApp." : result === "failed" ? inviteUrl : null);
   }
 
+  const adminCount = members.filter((m) => m.role === "admin").length;
+
   async function leave() {
-    const msg = isAdmin
-      ? "Você é o admin. Se sair, o grupo fica sem ninguém para começar os eventos. Sair mesmo assim?"
-      : "Sair do grupo? Você pode voltar pelo link de convite.";
+    const msg =
+      isAdmin && adminCount === 1 && members.length > 1
+        ? "Você é o único admin. Se sair, o membro mais antigo do grupo vira admin. Sair mesmo assim?"
+        : "Sair do grupo? Você pode voltar pelo link de convite.";
     if (!window.confirm(msg)) return;
     await getSupabase().from("group_members").delete().eq("group_id", group!.id).eq("user_id", profile.id);
     router.replace("/");
@@ -170,23 +174,126 @@ function GroupLoader({ profile }: { profile: Profile }) {
         <div className="grid grid-cols-4 gap-3">
           {members.map((m) => {
             const name = m.profiles?.nickname ?? "?";
-            return (
-              <div key={m.user_id} className="flex flex-col items-center gap-1 text-center">
+            const body = (
+              <>
                 <Avatar id={m.user_id} name={name} size={48} />
                 <span className="w-full truncate text-xs font-semibold">
                   {m.user_id === profile.id ? "Você" : name}
                 </span>
-                <span className="h-3 text-[10px] text-muted">{m.role === "admin" ? "admin" : ""}</span>
+                <span className={`h-4 rounded-full px-1.5 text-[10px] font-bold ${m.role === "admin" ? "bg-gold-soft text-[#5c3e00]" : "text-transparent"}`}>
+                  admin
+                </span>
+              </>
+            );
+            return isAdmin ? (
+              <button key={m.user_id} onClick={() => setManaging(m)} className="flex flex-col items-center gap-1 text-center">
+                {body}
+              </button>
+            ) : (
+              <div key={m.user_id} className="flex flex-col items-center gap-1 text-center">
+                {body}
               </div>
             );
           })}
         </div>
+        {isAdmin && members.length > 1 && (
+          <p className="text-xs text-muted">Toque em alguém para tornar admin. Admins começam e encerram eventos e corrigem registros de qualquer pessoa.</p>
+        )}
       </section>
+
+      {managing && (
+        <MemberSheet
+          groupId={group.id}
+          member={managing}
+          isMe={managing.user_id === profile.id}
+          adminCount={adminCount}
+          onClose={() => setManaging(null)}
+          onChanged={() => fetchGroup(group.id).then((r) => setMembers(r.members))}
+        />
+      )}
 
       <div className="flex-1" />
       <button onClick={leave} className="h-11 text-sm font-semibold text-[#b3261e]">
         Sair do grupo
       </button>
     </Screen>
+  );
+}
+
+function MemberSheet({
+  groupId,
+  member,
+  isMe,
+  adminCount,
+  onClose,
+  onChanged,
+}: {
+  groupId: string;
+  member: Member;
+  isMe: boolean;
+  adminCount: number;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = isMe ? "Você" : member.profiles?.nickname ?? "?";
+  const admin = member.role === "admin";
+  const lastAdmin = admin && adminCount === 1;
+
+  async function run(fn: () => PromiseLike<{ error: { message: string } | null }>) {
+    setBusy(true);
+    setError(null);
+    const { error: err } = await fn();
+    setBusy(false);
+    if (err) return setError(err.message.includes("last admin") ? "O grupo precisa de pelo menos um admin." : "Não deu certo. Tente de novo.");
+    onChanged();
+    onClose();
+  }
+
+  const setRole = (role: "admin" | "member") =>
+    run(() => getSupabase().rpc("set_member_role", { p_group: groupId, p_user: member.user_id, p_role: role }));
+  const removeMember = () => {
+    if (!window.confirm(`Remover ${name} do grupo? Os registros dessa pessoa nos eventos continuam no placar.`)) return;
+    run(() => getSupabase().from("group_members").delete().eq("group_id", groupId).eq("user_id", member.user_id));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-[rgba(26,23,20,0.55)]" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-label={`Opções de ${name}`}
+        className="mx-auto flex w-full max-w-md flex-col gap-3 rounded-t-3xl bg-cream px-5 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto h-1.5 w-10 shrink-0 rounded-full bg-line-strong" />
+        <div className="flex items-center gap-3">
+          <Avatar id={member.user_id} name={member.profiles?.nickname ?? "?"} size={52} />
+          <div className="flex flex-col">
+            <span className="font-display text-xl font-extrabold">{name}</span>
+            <span className="text-sm text-muted">{admin ? "Admin do grupo" : "Membro"}</span>
+          </div>
+        </div>
+        {admin ? (
+          <button onClick={() => setRole("member")} disabled={busy || lastAdmin} className={secondaryButton + (lastAdmin ? " opacity-50" : "")}>
+            {isMe ? "Deixar de ser admin" : "Tirar de admin"}
+          </button>
+        ) : (
+          <button onClick={() => setRole("admin")} disabled={busy} className={primaryButton}>
+            Tornar admin
+          </button>
+        )}
+        {lastAdmin && <p className="-mt-1 text-center text-xs text-muted">É o único admin. Torne outra pessoa admin antes.</p>}
+        {!isMe && (
+          <button onClick={removeMember} disabled={busy} className="h-11 text-sm font-semibold text-[#b3261e]">
+            Remover do grupo
+          </button>
+        )}
+        {error && <p className="text-center text-sm text-tomato-dark">{error}</p>}
+        <button onClick={onClose} className="h-10 text-sm font-semibold text-muted">
+          Cancelar
+        </button>
+      </div>
+    </div>
   );
 }

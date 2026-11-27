@@ -13,6 +13,8 @@ export type Boat = {
   total: number;
   created_at: string;
   photo_path: string | null;
+  edited_by?: string | null;
+  total_original?: number | null;
 };
 
 type AiResult = {

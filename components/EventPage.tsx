@@ -3,12 +3,13 @@
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SignedIn, Splash } from "@/components/SignedIn";
-import { Avatar, BackLink, Screen, StatusPill, primaryButton } from "@/components/ui";
+import { Avatar, BackLink, Screen, StatusPill, primaryButton, secondaryButton } from "@/components/ui";
 import type { Profile } from "@/lib/auth";
 import { formatWhen, timeAgo } from "@/lib/format";
 import { QuickPanel } from "@/components/QuickPieces";
 import { BoatSheet, type Boat } from "@/components/BoatSheet";
 import type { Candidate } from "@/lib/duplicates";
+import { EntryEditSheet, RecordsSheet, editNote, entryAction, type RecordEntry, type RecordsFilter } from "@/components/Records";
 import { PhotoSheet } from "@/components/PhotoSheet";
 import { getSupabase } from "@/lib/supabase/client";
 
@@ -22,14 +23,7 @@ type EventRow = {
   groups: { name: string } | null;
 };
 type Member = { user_id: string; role: "admin" | "member"; profiles: { nickname: string } | null };
-type Entry = {
-  id: string;
-  user_id: string;
-  count_final: number;
-  created_at: string;
-  photo_path?: string | null;
-  ai_result?: { fonte?: string; por_tipo?: Record<string, number> } | null;
-};
+type Entry = RecordEntry;
 type Score = { userId: string; name: string; total: number; plates: number };
 
 async function fetchEvent(id: string) {
@@ -52,7 +46,7 @@ async function fetchMembers(groupId: string): Promise<Member[]> {
 async function fetchBoats(eventId: string): Promise<Boat[]> {
   const { data } = await getSupabase()
     .from("boats")
-    .select("id, created_by, counts, total, created_at, photo_path")
+    .select("id, created_by, counts, total, created_at, photo_path, edited_by, total_original")
     .eq("event_id", eventId)
     .order("created_at", { ascending: true });
   return (data as Boat[] | null) ?? [];
@@ -61,7 +55,7 @@ async function fetchBoats(eventId: string): Promise<Boat[]> {
 async function fetchEntries(eventId: string): Promise<Entry[]> {
   const { data } = await getSupabase()
     .from("entries")
-    .select("id, user_id, count_final, created_at, photo_path, ai_result")
+    .select("id, user_id, count_final, created_at, photo_path, ai_result, edited_by, edited_at, count_original")
     .eq("event_id", eventId)
     .order("created_at", { ascending: false });
   return (data as Entry[] | null) ?? [];
@@ -79,6 +73,8 @@ function EventView({ profile }: { profile: Profile }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [boats, setBoats] = useState<Boat[]>([]);
   const [boatSheet, setBoatSheet] = useState<{ editing?: Boat } | null>(null);
+  const [records, setRecords] = useState<RecordsFilter | null>(null);
+  const [editing, setEditing] = useState<Entry | null>(null);
   const [toast, setToast] = useState<{ label: string; entryId?: string; failed?: boolean } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -224,6 +220,7 @@ function EventView({ profile }: { profile: Profile }) {
   }
 
   const isAdmin = members.some((m) => m.user_id === profile.id && m.role === "admin");
+  const canEdit = (e: Entry) => !e.id.startsWith("tmp-") && (isAdmin || (e.user_id === profile.id && event.status === "live"));
   const nameOf = (uid: string) => members.find((m) => m.user_id === uid)?.profiles?.nickname ?? "?";
 
   async function setStatus(status: "live" | "closed") {
@@ -303,13 +300,15 @@ function EventView({ profile }: { profile: Profile }) {
             entries={entries}
             meId={profile.id}
             nameOf={nameOf}
-            onUndo={undo}
+            canEdit={canEdit}
+            onEdit={setEditing}
+            onOpenRecords={setRecords}
             boats={boats}
             remaining={remaining}
             onEditBoat={(b) => setBoatSheet({ editing: b })}
           />
         )}
-        {event.status === "closed" && <Podium scores={scores} entries={entries} />}
+        {event.status === "closed" && <Podium scores={scores} entries={entries} isAdmin={isAdmin} onOpenRecords={setRecords} />}
       </Screen>
 
       {event.status === "live" && (
@@ -349,6 +348,28 @@ function EventView({ profile }: { profile: Profile }) {
           editing={boatSheet.editing}
           onClose={() => setBoatSheet(null)}
           onSaved={() => fetchBoats(id).then(setBoats)}
+        />
+      )}
+
+      {records && !editing && (
+        <RecordsSheet
+          entries={entries}
+          filter={records}
+          meId={profile.id}
+          nameOf={nameOf}
+          canEdit={canEdit}
+          onEdit={setEditing}
+          onClose={() => setRecords(null)}
+        />
+      )}
+
+      {editing && (
+        <EntryEditSheet
+          entry={editing}
+          meId={profile.id}
+          nameOf={nameOf}
+          onClose={() => setEditing(null)}
+          onSaved={() => fetchEntries(id).then(setEntries)}
         />
       )}
 
@@ -412,7 +433,9 @@ function Live({
   entries,
   meId,
   nameOf,
-  onUndo,
+  canEdit,
+  onEdit,
+  onOpenRecords,
   boats,
   remaining,
   onEditBoat,
@@ -421,7 +444,9 @@ function Live({
   entries: Entry[];
   meId: string;
   nameOf: (uid: string) => string;
-  onUndo: (id: string) => void;
+  canEdit: (e: Entry) => boolean;
+  onEdit: (e: Entry) => void;
+  onOpenRecords: (f: RecordsFilter) => void;
   boats: Boat[];
   remaining: Record<string, number> | null;
   onEditBoat: (b: Boat) => void;
@@ -461,7 +486,12 @@ function Live({
 
       <div className="rounded-2xl border border-line bg-white px-4 py-1">
         {scores.map((s, i) => (
-          <div key={s.userId} className={`flex h-11 items-center gap-2.5 ${i < scores.length - 1 ? "border-b border-[#f0ece6]" : ""}`}>
+          <button
+            key={s.userId}
+            onClick={() => onOpenRecords(s.userId === meId ? "me" : s.userId)}
+            aria-label={`Ver registros de ${s.userId === meId ? "você" : s.name}`}
+            className={`flex h-11 w-full items-center gap-2.5 text-left ${i < scores.length - 1 ? "border-b border-[#f0ece6]" : ""}`}
+          >
             <span className="w-5 text-[13px] font-bold text-muted">{i + 1}</span>
             <span className="w-16 truncate text-sm font-semibold">{s.userId === meId ? "Você" : s.name}</span>
             <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-[#f0ece6]">
@@ -474,7 +504,7 @@ function Live({
               />
             </div>
             <span className="w-8 text-right text-[15px] font-bold">{s.total}</span>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -488,7 +518,15 @@ function Live({
                 <span className="truncate text-sm font-semibold">
                   {b.total} peças · foto de {b.created_by === meId ? "você" : nameOf(b.created_by)}
                 </span>
-                <span className="text-xs text-muted">{timeAgo(b.created_at)}</span>
+                <span className="truncate text-xs text-muted">
+                  {timeAgo(b.created_at)}
+                  {b.edited_by && (
+                    <span className="text-tomato-dark">
+                      {" "}· corrigida por {b.edited_by === meId ? "você" : nameOf(b.edited_by)}
+                      {b.total_original != null && b.total_original !== b.total ? ` · era ${b.total_original}` : ""}
+                    </span>
+                  )}
+                </span>
               </div>
               <button onClick={() => onEditBoat(b)} className="h-8 rounded-lg border border-line px-2.5 text-xs font-semibold">
                 Corrigir
@@ -505,33 +543,53 @@ function Live({
 
       {hasPlates && (
         <section className="flex flex-col gap-2">
-          <h2 className="text-[15px] font-bold">Últimos registros</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-[15px] font-bold">Últimos registros</h2>
+            <button onClick={() => onOpenRecords("me")} className="text-sm font-semibold text-tomato-dark">
+              Meus registros
+            </button>
+          </div>
           {entries.slice(0, 6).map((e) => (
             <div key={e.id} className="flex items-center gap-3 rounded-2xl border border-line bg-white px-3.5 py-2.5">
               <Avatar id={e.user_id} name={nameOf(e.user_id)} size={34} />
               <div className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-sm font-semibold">
-                  {e.user_id === meId ? "Você" : nameOf(e.user_id)}{" "}
-                  {e.ai_result?.fonte === "rapido"
-                    ? `comeu 1 ${Object.keys(e.ai_result.por_tipo ?? {})[0] ?? "peça"}`
-                    : `registrou ${e.count_final} ${e.count_final === 1 ? "peça" : "peças"}`}
+                  {e.user_id === meId ? "Você" : nameOf(e.user_id)} {entryAction(e)}
                 </span>
-                <span className="text-xs text-muted">{timeAgo(e.created_at)}</span>
+                <span className="truncate text-xs text-muted">
+                  {timeAgo(e.created_at)}
+                  {editNote(e, nameOf, meId) && <span className="text-tomato-dark"> · {editNote(e, nameOf, meId)}</span>}
+                </span>
               </div>
-              {e.user_id === meId && (
-                <button onClick={() => onUndo(e.id)} className="h-8 rounded-lg border border-line px-2.5 text-xs font-semibold">
-                  Desfazer
+              {canEdit(e) && (
+                <button onClick={() => onEdit(e)} className="h-8 rounded-lg border border-line px-2.5 text-xs font-semibold">
+                  Corrigir
                 </button>
               )}
             </div>
           ))}
+          {entries.length > 6 && (
+            <button onClick={() => onOpenRecords("all")} className="h-10 text-sm font-semibold text-muted">
+              Ver todos os {entries.length} registros
+            </button>
+          )}
         </section>
       )}
     </>
   );
 }
 
-function Podium({ scores, entries }: { scores: Score[]; entries: Entry[] }) {
+function Podium({
+  scores,
+  entries,
+  isAdmin,
+  onOpenRecords,
+}: {
+  scores: Score[];
+  entries: Entry[];
+  isAdmin: boolean;
+  onOpenRecords: (f: RecordsFilter) => void;
+}) {
   const ranked = scores.filter((s) => s.total > 0);
   const total = entries.reduce((sum, e) => sum + e.count_final, 0);
   const avg = ranked.length ? total / ranked.length : 0;
@@ -594,6 +652,10 @@ function Podium({ scores, entries }: { scores: Score[]; entries: Entry[] }) {
           ))}
         </div>
       )}
+
+      <button onClick={() => onOpenRecords(isAdmin ? "all" : "me")} className={secondaryButton}>
+        {isAdmin ? "Conferir e corrigir registros" : "Ver meus registros"}
+      </button>
     </>
   );
 }
