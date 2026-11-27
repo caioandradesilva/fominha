@@ -38,11 +38,13 @@ async function fetchEvent(id: string) {
     .eq("id", id)
     .maybeSingle();
   if (!ev) return { event: null, members: [], entries: [] };
-  const [m, e] = await Promise.all([
-    supabase.from("group_members").select("user_id, role, profiles(nickname)").eq("group_id", ev.group_id),
-    fetchEntries(id),
-  ]);
-  return { event: ev as unknown as EventRow, members: (m.data as Member[] | null) ?? [], entries: e };
+  const [m, e] = await Promise.all([fetchMembers(ev.group_id), fetchEntries(id)]);
+  return { event: ev as unknown as EventRow, members: m, entries: e };
+}
+
+async function fetchMembers(groupId: string): Promise<Member[]> {
+  const { data } = await getSupabase().from("group_members").select("user_id, role, profiles(nickname)").eq("group_id", groupId);
+  return (data as Member[] | null) ?? [];
 }
 
 async function fetchBoats(eventId: string): Promise<Boat[]> {
@@ -166,6 +168,22 @@ function EventView({ profile }: { profile: Profile }) {
     setToast(t);
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   }
+
+  // Quem entra no grupo depois de a tela abrir não estava na lista de membros e aparecia como "?".
+  // Ao chegar registro ou barca de alguém desconhecido, recarrega os membros.
+  const groupId = event?.group_id;
+  const hasUnknown = useMemo(() => {
+    const known = new Set(members.map((m) => m.user_id));
+    return entries.some((e) => !known.has(e.user_id)) || boats.some((b) => !known.has(b.created_by));
+  }, [members, entries, boats]);
+  useEffect(() => {
+    if (!groupId || !hasUnknown) return;
+    let active = true;
+    fetchMembers(groupId).then((m) => active && setMembers(m));
+    return () => {
+      active = false;
+    };
+  }, [groupId, hasUnknown]);
 
   if (event === undefined) return <Splash />;
   if (event === null) {
