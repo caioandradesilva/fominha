@@ -8,10 +8,14 @@ import { hasSupabaseEnv, supabaseKey, supabaseUrl } from "@/lib/supabase/env";
 // - fominha-umber.vercel.app (e qualquer outro host): o MVP, sem a landing.
 const LANDING_HOSTS = new Set(["rodizium.com.br", "www.rodizium.com.br"]);
 const LANDING_ROUTE = "/lista";
+/** Páginas públicas que abrem nos dois domínios (exigidas pelo Google para o login). */
+const PUBLIC_PAGES = new Set(["/privacidade", "/termos"]);
 
 export async function proxy(request: NextRequest) {
   const host = request.headers.get("host")?.split(":")[0] ?? "";
   const { pathname } = request.nextUrl;
+
+  if (PUBLIC_PAGES.has(pathname)) return NextResponse.next();
 
   if (LANDING_HOSTS.has(host)) {
     if (pathname === "/") return NextResponse.rewrite(new URL(LANDING_ROUTE, request.url));

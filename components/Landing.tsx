@@ -637,7 +637,11 @@ export function Landing() {
 
       <footer className="bg-ink text-[#a39a8f]">
         <div className="mx-auto flex max-w-6xl items-center justify-between border-t border-white/10 px-6 py-6 text-sm">
-          <span>© 2026 Rodizium</span>
+          <span className="flex items-center gap-4">
+            © 2026 Rodizium
+            <a href="/privacidade" className="hover:text-white">Privacidade</a>
+            <a href="/termos" className="hover:text-white">Termos</a>
+          </span>
           <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 font-semibold text-white hover:text-gold">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <rect x="3" y="3" width="18" height="18" rx="5" />
