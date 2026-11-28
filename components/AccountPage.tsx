@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { CONTACT_EMAIL } from "@/components/LegalPage";
+import { Switch } from "@/components/RestaurantPage";
 import { SaveAccountSheet } from "@/components/SaveAccount";
 import { Avatar, BackLink, Screen, primaryButton, secondaryButton } from "@/components/ui";
 import { useAuth, type Profile } from "@/lib/auth";
 import { getSupabase } from "@/lib/supabase/client";
+import { track } from "@/lib/telemetry";
 
 /** Perfil e configurações (backlog C6), com "Excluir minha conta" (B6). */
 export function AccountPage({ profile }: { profile: Profile }) {
@@ -18,6 +20,15 @@ export function AccountPage({ profile }: { profile: Profile }) {
   const [nameMsg, setNameMsg] = useState<string | null>(null);
   const [saveAccount, setSaveAccount] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [publicBusy, setPublicBusy] = useState(false);
+
+  async function setPublic(on: boolean) {
+    setPublicBusy(true);
+    await getSupabase().from("profiles").update({ public_ranking: on }).eq("id", profile.id);
+    track("public_ranking", { on, origem: "perfil" });
+    await reloadProfile();
+    setPublicBusy(false);
+  }
 
   const providers = (user?.identities ?? []).map((i) => i.provider).filter((p) => p !== "anonymous");
   const via = providers.includes("google") ? "Google" : providers.includes("email") ? "e-mail" : null;
@@ -98,6 +109,17 @@ export function AccountPage({ profile }: { profile: Profile }) {
             Entre com {via ?? "a mesma conta"} em qualquer celular para ver seus grupos e registros.
           </p>
         )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-[15px] font-bold">Privacidade</h2>
+        <div className="flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3">
+          <span className="flex flex-1 flex-col">
+            <span className="text-sm font-semibold">Aparecer nos rankings das casas</span>
+            <span className="text-[13px] text-muted">Recorde e ranking do mês de cada restaurante, visíveis para outros grupos. Só o apelido e as peças.</span>
+          </span>
+          <Switch on={profile.public_ranking} disabled={publicBusy} onChange={setPublic} label="Aparecer nos rankings das casas" />
+        </div>
       </section>
 
       <section className="flex flex-col rounded-2xl border border-line bg-white px-4">

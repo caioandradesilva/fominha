@@ -9,16 +9,17 @@ import type { Profile } from "@/lib/auth";
 import { formatWhen } from "@/lib/format";
 import { MAX_WEIGHT, MIN_WEIGHT, normalizeScoring, scoringSummary, type Scoring } from "@/lib/scoring";
 import { PieceArt, QUICK_PIECES } from "@/components/QuickPieces";
+import { SEASON_OPTIONS, currentSeason, seasonLabel, toDateInput } from "@/lib/season";
 import { getSupabase } from "@/lib/supabase/client";
 
-type Group = { id: string; name: string; invite_code: string; created_at: string; scoring?: unknown };
+type Group = { id: string; name: string; invite_code: string; created_at: string; scoring?: unknown; season_start: string; season_months: number };
 type Member = { user_id: string; role: "admin" | "member"; profiles: { nickname: string } | null };
 type EventRow = { id: string; name: string; status: "scheduled" | "live" | "closed"; starts_at: string | null; restaurant_name: string | null };
 
 async function fetchGroup(id: string) {
   const supabase = getSupabase();
   const [g, m, e] = await Promise.all([
-    supabase.from("groups").select("id, name, invite_code, created_at, scoring").eq("id", id).maybeSingle(),
+    supabase.from("groups").select("id, name, invite_code, created_at, scoring, season_start, season_months").eq("id", id).maybeSingle(),
     supabase.from("group_members").select("user_id, role, profiles(nickname)").eq("group_id", id).order("joined_at"),
     supabase
       .from("events")
@@ -47,6 +48,7 @@ function GroupLoader({ profile }: { profile: Profile }) {
   const [shareMsg, setShareMsg] = useState<string | null>(null);
   const [managing, setManaging] = useState<Member | null>(null);
   const [editingScore, setEditingScore] = useState(false);
+  const [editingSeason, setEditingSeason] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -190,6 +192,26 @@ function GroupLoader({ profile }: { profile: Profile }) {
       </section>
 
       <section className="flex flex-col gap-2">
+        <h2 className="text-[15px] font-bold">Temporada</h2>
+        <div className="flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3">
+          <Link href={`/ranking?g=${group.id}`} className="flex min-w-0 flex-1 flex-col">
+            <span className="text-sm font-semibold">
+              {(() => {
+                const s = currentSeason(group);
+                return `${s.index}ª temporada · ${seasonLabel(s.start, s.end)}`;
+              })()}
+            </span>
+            <span className="text-xs text-tomato-dark font-semibold">Ver ranking da temporada →</span>
+          </Link>
+          {isAdmin && (
+            <button onClick={() => setEditingSeason(true)} className="text-sm font-semibold text-tomato-dark">
+              Mudar
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-bold">Membros</h2>
         <div className="grid grid-cols-4 gap-3">
           {members.map((m) => {
@@ -227,6 +249,14 @@ function GroupLoader({ profile }: { profile: Profile }) {
           initial={normalizeScoring(group.scoring)}
           onClose={() => setEditingScore(false)}
           onSaved={(sc) => setGroup({ ...group, scoring: sc })}
+        />
+      )}
+
+      {editingSeason && (
+        <SeasonSheet
+          group={group}
+          onClose={() => setEditingSeason(false)}
+          onSaved={(patch) => setGroup({ ...group, ...patch })}
         />
       )}
 
@@ -421,6 +451,77 @@ function ScoringSheet({
         {error && <p className="text-center text-sm text-tomato-dark">{error}</p>}
         <button onClick={save} disabled={busy} className={primaryButton}>
           {busy ? "Salvando…" : "Salvar pontuação"}
+        </button>
+        <button onClick={onClose} className="h-10 text-sm font-semibold text-muted">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SeasonSheet({
+  group,
+  onClose,
+  onSaved,
+}: {
+  group: Group;
+  onClose: () => void;
+  onSaved: (p: { season_months: number; season_start: string }) => void;
+}) {
+  const [months, setMonths] = useState(group.season_months);
+  const [restart, setRestart] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    // Mudar a duração mantém o começo atual da temporada; "recomeçar" zera a partir de hoje
+    const start = restart ? toDateInput(new Date()) : toDateInput(currentSeason(group).start);
+    const patch = { season_months: months, season_start: start };
+    const { error: err } = await getSupabase().from("groups").update(patch).eq("id", group.id);
+    setBusy(false);
+    if (err) return setError("Não salvou. Só admins mudam a temporada.");
+    onSaved(patch);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-[rgba(26,23,20,0.55)]" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-label="Temporada do grupo"
+        className="mx-auto flex w-full max-w-md flex-col gap-4 rounded-t-3xl bg-cream px-5 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto h-1.5 w-10 shrink-0 rounded-full bg-line-strong" />
+        <div className="flex flex-col gap-1">
+          <span className="font-display text-xl font-extrabold">Temporada</span>
+          <span className="text-sm text-muted">O ranking da temporada soma os rodízios desse período e recomeça sozinho no fim.</span>
+        </div>
+        <div className="grid grid-cols-4 gap-2" role="group" aria-label="Duração">
+          {SEASON_OPTIONS.map((m) => (
+            <button
+              key={m}
+              aria-pressed={months === m}
+              onClick={() => setMonths(m)}
+              className={`h-12 rounded-xl border text-sm font-semibold ${months === m ? "border-ink bg-ink text-white" : "border-line-strong bg-white"}`}
+            >
+              {m} {m === 1 ? "mês" : "meses"}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-3 rounded-xl bg-white px-4 py-3 text-sm">
+          <input type="checkbox" checked={restart} onChange={(e) => setRestart(e.target.checked)} className="h-5 w-5 accent-[#D33D15]" />
+          <span className="flex flex-col">
+            <span className="font-semibold">Começar uma temporada nova hoje</span>
+            <span className="text-xs text-muted">Os rodízios antigos continuam nos eventos; só saem da soma.</span>
+          </span>
+        </label>
+        {error && <p className="text-center text-sm text-tomato-dark">{error}</p>}
+        <button onClick={save} disabled={busy} className={primaryButton}>
+          {busy ? "Salvando…" : "Salvar"}
         </button>
         <button onClick={onClose} className="h-10 text-sm font-semibold text-muted">
           Cancelar

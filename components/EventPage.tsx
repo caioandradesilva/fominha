@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SignedIn, Splash } from "@/components/SignedIn";
@@ -24,6 +25,7 @@ type EventRow = {
   group_id: string;
   name: string;
   restaurant_name: string | null;
+  restaurant_id: string | null;
   starts_at: string | null;
   status: "scheduled" | "live" | "closed";
   groups: { name: string; scoring?: unknown } | null;
@@ -36,7 +38,7 @@ async function fetchEvent(id: string) {
   const supabase = getSupabase();
   const { data: ev } = await supabase
     .from("events")
-    .select("id, group_id, name, restaurant_name, starts_at, status, groups(name, scoring)")
+    .select("id, group_id, name, restaurant_name, restaurant_id, starts_at, status, groups(name, scoring)")
     .eq("id", id)
     .maybeSingle();
   if (!ev) return { event: null, members: [], entries: [] };
@@ -295,7 +297,16 @@ function EventView({ profile }: { profile: Profile }) {
           <div className="flex min-w-0 flex-1 flex-col">
             <h1 className="truncate font-display text-[22px] leading-tight font-extrabold">{event.name}</h1>
             <span className="truncate text-[13px] text-muted">
-              {[event.restaurant_name, event.groups?.name].filter(Boolean).join(" · ")}
+              {event.restaurant_id && event.restaurant_name ? (
+                <>
+                  <Link href={`/r/${event.restaurant_id}`} className="font-semibold text-ink underline decoration-line-strong underline-offset-2">
+                    {event.restaurant_name}
+                  </Link>
+                  {event.groups?.name ? ` · ${event.groups.name}` : ""}
+                </>
+              ) : (
+                [event.restaurant_name, event.groups?.name].filter(Boolean).join(" · ")
+              )}
             </span>
           </div>
           <StatusPill status={event.status} />

@@ -3,9 +3,11 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { SignedIn, Splash } from "@/components/SignedIn";
+import { RestaurantPicker } from "@/components/RestaurantPicker";
 import { BackLink, Screen, inputClass, primaryButton } from "@/components/ui";
 import type { Profile } from "@/lib/auth";
 import { defaultEventLocal, monthName } from "@/lib/format";
+import type { Restaurant } from "@/lib/restaurants";
 import { getSupabase } from "@/lib/supabase/client";
 
 export function NewEventScreen() {
@@ -17,7 +19,7 @@ function NewEvent({ profile }: { profile: Profile }) {
   const router = useRouter();
   const [groupName, setGroupName] = useState<string | null>(null);
   const [name, setName] = useState(`Rodízio de ${monthName()}`);
-  const [restaurant, setRestaurant] = useState("");
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [when, setWhen] = useState(defaultEventLocal);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +43,8 @@ function NewEvent({ profile }: { profile: Profile }) {
       .insert({
         group_id: groupId,
         name: name.trim(),
-        restaurant_name: restaurant.trim() || null,
+        restaurant_name: restaurant?.name ?? null,
+        restaurant_id: restaurant?.id ?? null,
         starts_at: when ? new Date(when).toISOString() : null,
         created_by: profile.id,
       })
@@ -78,14 +81,7 @@ function NewEvent({ profile }: { profile: Profile }) {
           <label htmlFor="ev-rest" className="text-sm font-semibold text-muted">
             Restaurante
           </label>
-          <input
-            id="ev-rest"
-            value={restaurant}
-            onChange={(e) => setRestaurant(e.target.value)}
-            maxLength={80}
-            placeholder="Ex.: Sushi do Bairro"
-            className={inputClass}
-          />
+          <RestaurantPicker userId={profile.id} value={restaurant} onChange={setRestaurant} />
         </div>
         <div className="flex flex-col gap-2">
           <label htmlFor="ev-when" className="text-sm font-semibold text-muted">

@@ -39,10 +39,18 @@ export function Home({ profile }: { profile: Profile }) {
     <Screen className="!gap-6 !pt-7">
       <header className="flex items-center justify-between">
         <Wordmark className="text-[32px]" />
+        <div className="flex items-center gap-2">
+        <Link href="/ranking" aria-label="Ranking" className="flex h-11 w-11 items-center justify-center rounded-full border border-line bg-white text-ink">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z" />
+            <path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" />
+          </svg>
+        </Link>
         <Link href="/conta" aria-label="Perfil e configurações" className="flex h-11 items-center gap-2 rounded-full border border-line bg-white pr-4 pl-1 text-sm font-semibold">
           <Avatar id={profile.id} name={profile.nickname} size={34} />
           Perfil
         </Link>
+        </div>
       </header>
 
       <div className="flex flex-col gap-0.5">
