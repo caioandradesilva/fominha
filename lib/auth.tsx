@@ -13,6 +13,7 @@ import {
 } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { installTelemetry, track } from "@/lib/telemetry";
+import { getCaptchaToken } from "@/lib/captcha";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 
 export type Profile = {
@@ -121,7 +122,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const current = (await supabase.auth.getSession()).data.session?.user ?? null;
     let user = current;
     if (!user) {
-      const { data, error } = await supabase.auth.signInAnonymously();
+      const captchaToken = await getCaptchaToken();
+      const { data, error } = await supabase.auth.signInAnonymously(captchaToken ? { options: { captchaToken } } : undefined);
       if (error || !data.user) return { ok: false, error: "Não deu para entrar agora. Tente de novo em instantes." };
       user = data.user;
     }
@@ -172,7 +174,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, exists: true, error: "Esse e-mail já tem uma conta no Rodizium." };
       return { ok: false, error: emailError(error.code) };
     }
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    const captchaToken = await getCaptchaToken();
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, ...(captchaToken ? { captchaToken } : {}) } });
     if (error) return { ok: false, error: emailError(error.code) };
     return { ok: true, mode: "signin" };
   }, []);
@@ -216,5 +219,6 @@ function emailError(code: string | undefined) {
   if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit") return "Muitos pedidos seguidos. Espere um minuto e tente de novo.";
   if (code === "email_address_invalid") return "Esse e-mail não parece válido.";
   if (code === "email_provider_disabled" || code === "signup_disabled") return "O login por e-mail ainda não foi ativado.";
+  if (code === "captcha_failed") return "Não conseguimos confirmar que você é humano. Tente de novo.";
   return "Não deu para mandar o código agora. Tente de novo.";
 }
