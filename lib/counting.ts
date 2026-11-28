@@ -143,6 +143,7 @@ async function askOnce(
   mediaType: "image/jpeg" | "image/png" | "image/webp",
   maxTokens: number,
   mode: CountMode,
+  usage: Usage,
 ) {
   let message;
   try {
@@ -163,6 +164,9 @@ async function askOnce(
   } catch (e) {
     throw new CountError("ai_api", (e as Error).message);
   }
+  usage.model = message.model;
+  usage.input += message.usage?.input_tokens ?? 0;
+  usage.output += message.usage?.output_tokens ?? 0;
   const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
   const raw = parseAnswer(text);
   if (!raw) {
@@ -177,22 +181,26 @@ async function askOnce(
 
 export type CountMode = "prato" | "barca" | "auto";
 
+/** Tokens gastos numa contagem (somando a 2ª tentativa, se houver). */
+export type Usage = { input: number; output: number; model: string };
+
 /** Manda a foto para a API de visão e devolve a contagem sugerida. */
 export async function countPieces(
   image: Buffer,
   mediaType: "image/jpeg" | "image/png" | "image/webp",
   mode: CountMode = "prato",
+  usage: Usage = { input: 0, output: 0, model: MODEL },
 ): Promise<CountResult> {
   const client = new Anthropic({ maxRetries: 2 }); // usa ANTHROPIC_API_KEY do ambiente
   const data = image.toString("base64");
   let raw: RawAnswer;
   try {
-    raw = await askOnce(client, data, mediaType, mode === "prato" ? 2000 : 3000, mode);
+    raw = await askOnce(client, data, mediaType, mode === "prato" ? 2000 : 3000, mode, usage);
   } catch (e) {
     // Resposta fora do formato: tenta mais uma vez com mais espaço antes de desistir
     if (!(e instanceof CountError) || e.code !== "ai_format") throw e;
     console.warn("contar: 1ª resposta fora do formato, tentando de novo", e.message);
-    raw = await askOnce(client, data, mediaType, 6000, mode);
+    raw = await askOnce(client, data, mediaType, 6000, mode, usage);
   }
 
   const por_tipo: Record<string, number> = {};

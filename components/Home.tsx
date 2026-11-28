@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { InstallHint } from "@/components/InstallHint";
 import { SaveAccountSheet } from "@/components/SaveAccount";
 import { PlateMark, Wordmark } from "@/components/Logo";
-import { Screen, primaryButton } from "@/components/ui";
+import { Avatar, Screen, primaryButton } from "@/components/ui";
 import { useAuth, type Profile } from "@/lib/auth";
 import { getSupabase } from "@/lib/supabase/client";
 
@@ -15,7 +16,7 @@ type GroupRow = {
 
 /** Início: saudação e lista de grupos (ou o estado vazio do primeiro acesso). */
 export function Home({ profile }: { profile: Profile }) {
-  const { signOut, isAnonymous, user, authError, clearAuthError } = useAuth();
+  const { isAnonymous, user, authError, clearAuthError } = useAuth();
   const closeAccount = () => {
     setSaving(false);
     clearAuthError();
@@ -24,16 +25,6 @@ export function Home({ profile }: { profile: Profile }) {
   const [saving, setSaving] = useState(false);
   const accountOpen = saving || (isAnonymous && authError !== null);
 
-  function leave() {
-    if (
-      isAnonymous &&
-      !window.confirm(
-        "Sua conta não tem login. Se sair, você perde o acesso aos seus grupos e registros neste celular. Salve com Google ou e-mail antes. Sair mesmo assim?",
-      )
-    )
-      return;
-    signOut();
-  }
 
   useEffect(() => {
     getSupabase()
@@ -48,12 +39,10 @@ export function Home({ profile }: { profile: Profile }) {
     <Screen className="!gap-6 !pt-7">
       <header className="flex items-center justify-between">
         <Wordmark className="text-[32px]" />
-        <button
-          onClick={leave}
-          className="h-11 rounded-full border border-line bg-white px-4 text-sm font-semibold"
-        >
-          Sair
-        </button>
+        <Link href="/conta" aria-label="Perfil e configurações" className="flex h-11 items-center gap-2 rounded-full border border-line bg-white pr-4 pl-1 text-sm font-semibold">
+          <Avatar id={profile.id} name={profile.nickname} size={34} />
+          Perfil
+        </Link>
       </header>
 
       <div className="flex flex-col gap-0.5">
@@ -78,6 +67,8 @@ export function Home({ profile }: { profile: Profile }) {
       )}
 
       {accountOpen && <SaveAccountSheet onClose={closeAccount} />}
+
+      <InstallHint />
 
       {groups === null && <p className="text-muted">Carregando…</p>}
 

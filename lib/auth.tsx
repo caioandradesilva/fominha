@@ -40,6 +40,8 @@ type AuthValue = {
   /** Manda um código por e-mail: liga o e-mail à conta anônima, ou entra (cria a conta se não existir). */
   sendEmailCode: (email: string, forceSignIn?: boolean) => Promise<EmailCodeResult>;
   verifyEmailCode: (email: string, code: string, mode: "link" | "signin") => Promise<string | null>;
+  /** Relê o perfil (depois de trocar o apelido, por exemplo). */
+  reloadProfile: () => Promise<void>;
   /** Entra com apelido: cria a sessão anônima (se preciso) e salva o perfil. */
   signInWithNickname: (nickname: string) => Promise<{ ok: true; profile: Profile } | { ok: false; error: string }>;
   signOut: () => Promise<void>;
@@ -176,8 +178,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       continueWithGoogle,
       sendEmailCode,
       verifyEmailCode,
+      reloadProfile: () => load(state.user),
     }),
-    [state, authError, signInWithNickname, signOut, continueWithGoogle, sendEmailCode, verifyEmailCode],
+    [state, authError, signInWithNickname, signOut, continueWithGoogle, sendEmailCode, verifyEmailCode, load],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

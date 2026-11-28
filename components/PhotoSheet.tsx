@@ -13,6 +13,8 @@ type AiResult = {
   confianca: "alta" | "media" | "baixa";
   observacao?: string;
   destino?: "meu" | "mesa";
+  /** tempos de cada etapa, para medir o loading (backlog C1) */
+  tempos?: Record<string, number>;
 };
 
 type Step = "choose" | "counting" | "review";
@@ -54,6 +56,7 @@ export function PhotoSheet({
   const [photoPath, setPhotoPath] = useState<string | null>(null);
   const [ai, setAi] = useState<AiResult | undefined>();
   const [aiFailed, setAiFailed] = useState<string | null>(null);
+  const [aiFailMsg, setAiFailMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Id do registro parecido que a pessoa já disse ser outra barca/prato. */
@@ -78,33 +81,53 @@ export function PhotoSheet({
     setAi(undefined);
     setAiFailed(null);
     setStep("counting");
+    setAiFailMsg(null);
     try {
-      const blob = await compressPhoto(file, 1600, 0.82);
+      const t0 = performance.now();
+      // 1568 px é o maior lado que a IA usa sem reduzir de novo
+      const blob = await compressPhoto(file, 1568, 0.82);
+      const tCompress = performance.now();
       setPreview(URL.createObjectURL(blob));
       const path = `${eventId}/${userId}/foto-${crypto.randomUUID()}.jpg`;
       const supabase = getSupabase();
-      const { error: upErr } = await supabase.storage.from("plates").upload(path, blob, { contentType: "image/jpeg" });
-      if (upErr) throw new Error("upload");
-      await supabase.auth.getSession();
-      setPhotoPath(path);
-      const res = await fetch("/api/contar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId, path, mode: "auto" }),
-      });
+      await supabase.auth.getSession(); // renova o token (cookie) antes de chamar a rota da IA
+
+      // Envio ao Storage e contagem pela IA em paralelo: a foto vai direto para a IA (backlog C1)
+      const upload = supabase.storage
+        .from("plates")
+        .upload(path, blob, { contentType: "image/jpeg" })
+        .then(({ error: upErr }) => ({ ok: !upErr, ms: Math.round(performance.now() - tCompress) }));
+      const form = new FormData();
+      form.append("photo", blob, "foto.jpg");
+      form.append("eventId", eventId);
+      form.append("mode", "auto");
+      const count = fetch("/api/contar", { method: "POST", body: form }).then(async (res) => ({
+        res,
+        ms: Math.round(performance.now() - tCompress),
+      }));
+
+      const [up, { res, ms: msCount }] = await Promise.all([upload, count]);
+      if (up.ok) setPhotoPath(path);
       if (!res.ok) {
-        const info = (await res.json().catch(() => ({}))) as { code?: string; detail?: string };
+        const info = (await res.json().catch(() => ({}))) as { code?: string; detail?: string; error?: string };
+        if (res.status === 429 && info.error) setAiFailMsg(info.error);
         const stop = info.detail?.match(/stop=(\w+)/)?.[1];
         throw new Error(`ai:${res.status}:${info.code ?? "?"}${stop ? `:${stop}` : ""}`);
       }
       const result = (await res.json()) as AiResult;
+      result.tempos = {
+        ...(result.tempos ?? {}),
+        comprimir_ms: Math.round(tCompress - t0),
+        upload_ms: up.ms,
+        contagem_ms: msCount,
+        total_ms: Math.round(performance.now() - t0),
+        bytes: blob.size,
+      };
       setAi(result);
       setCounts(result.por_tipo);
       setDest(result.destino === "mesa" ? "mesa" : "meu");
     } catch (e) {
-      const msg = (e as Error).message || "erro";
-      setAiFailed(msg);
-      if (msg === "upload") setPhotoPath(null);
+      setAiFailed((e as Error).message || "erro");
     }
     setStep("review");
   }
@@ -337,7 +360,7 @@ export function PhotoSheet({
             )}
             {aiFailed && (
               <p className="rounded-xl bg-gold-soft px-3 py-2 text-[13px] text-[#5c3e00]">
-                Não consegui contar agora. Marque as peças manualmente.
+                {aiFailMsg ?? "Não consegui contar agora. Marque as peças manualmente."}
                 <span className="mt-1 block text-[11px] opacity-70">Código: {aiFailed}</span>
               </p>
             )}

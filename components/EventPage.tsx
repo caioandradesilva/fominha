@@ -263,7 +263,8 @@ function EventView({ profile }: { profile: Profile }) {
       .single();
     if (error || !data) {
       setEntries((list) => list.filter((e) => e.id !== tempId));
-      showToast({ label: "Não salvou. Confira a internet.", failed: true });
+      const label = error?.message.includes("rate_limited") ? "Calma! Muitos toques seguidos. Espere uns segundos." : "Não salvou. Confira a internet.";
+      showToast({ label, failed: true });
       return;
     }
     setEntries((list) => list.map((e) => (e.id === tempId ? { ...e, id: data.id } : e)));
