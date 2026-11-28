@@ -9,6 +9,8 @@
  * Ao contrário, ninguém consegue entrar.
  */
 // Chave pública do widget "Rodizium" (Cloudflare Turnstile). A secret fica só no Supabase.
+import { track } from "@/lib/telemetry";
+
 export const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "0x4AAAAAAGXPBh_b_2AKwqCe";
 
 type Turnstile = {
@@ -26,6 +28,9 @@ declare global {
 
 let loading: Promise<Turnstile> | null = null;
 
+/** Se a Cloudflare não responder neste tempo, segue sem token (o Supabase decide se aceita). */
+const TIMEOUT_MS = 15000;
+
 function loadScript(): Promise<Turnstile> {
   if (window.turnstile) return Promise.resolve(window.turnstile);
   loading ??= new Promise((resolve, reject) => {
@@ -42,13 +47,26 @@ function loadScript(): Promise<Turnstile> {
 /** Pede um token novo (uso único). Só mostra algo na tela se a Cloudflare desconfiar. */
 export async function getCaptchaToken(): Promise<string | undefined> {
   if (!TURNSTILE_SITE_KEY || typeof window === "undefined") return undefined;
-  const ts = await loadScript();
+  const t0 = performance.now();
+  let ts: Turnstile;
+  try {
+    ts = await loadScript();
+  } catch {
+    track("captcha", { ok: false, motivo: "script" });
+    return undefined;
+  }
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:80";
   document.body.appendChild(host);
   return new Promise<string | undefined>((resolve) => {
     let id = "";
-    const done = (token?: string) => {
+    let finished = false;
+    const timer = setTimeout(() => done(undefined, "sem resposta"), TIMEOUT_MS);
+    const done = (token?: string, motivo?: string) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      track("captcha", { ok: Boolean(token), motivo: motivo ?? null, ms: Math.round(performance.now() - t0) });
       try {
         ts.remove(id);
       } catch {
@@ -63,8 +81,8 @@ export async function getCaptchaToken(): Promise<string | undefined> {
       execution: "execute",
       language: "pt-br",
       callback: (token: string) => done(token),
-      "error-callback": () => done(undefined),
-      "timeout-callback": () => done(undefined),
+      "error-callback": (code: string) => done(undefined, `erro ${code}`),
+      "timeout-callback": () => done(undefined, "expirou"),
     });
     ts.execute(id);
   });
