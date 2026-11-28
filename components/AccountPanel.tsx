@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { primaryButton, secondaryButton } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
+import { renderGoogleButton } from "@/lib/googleId";
 import { supabaseKey, supabaseUrl } from "@/lib/supabase/env";
 
 /** Quais logins estão ligados no Supabase (o botão do Google só aparece quando o provedor está ativo). */
@@ -26,6 +27,43 @@ function GoogleMark() {
   );
 }
 
+/**
+ * Botão oficial do Google (Google Identity Services). Se o script do Google não carregar
+ * (bloqueador, rede ruim), mostra o nosso botão, que entra pelo redirecionamento antigo.
+ */
+function GoogleButton({ busy, onToken, onFallback }: { busy: boolean; onToken: (t: string, n: string) => void; onFallback: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState<"loading" | "ready" | "fallback">("loading");
+  const tokenRef = useRef(onToken);
+  useEffect(() => {
+    tokenRef.current = onToken;
+  }, [onToken]);
+  useEffect(() => {
+    let active = true;
+    if (!box.current) return;
+    renderGoogleButton(box.current, (t, n) => tokenRef.current(t, n)).then((ok) => active && setState(ok ? "ready" : "fallback"));
+    return () => {
+      active = false;
+    };
+  }, []);
+  return (
+    <div className="relative">
+      <div
+        ref={box}
+        aria-busy={busy}
+        className={`flex min-h-14 w-full items-center justify-center ${state === "fallback" ? "hidden" : ""} ${busy ? "pointer-events-none opacity-50" : ""}`}
+      />
+      {state === "loading" && <div className="absolute inset-0 rounded-2xl border border-line-strong bg-white" aria-hidden />}
+      {state === "fallback" && (
+        <button onClick={onFallback} disabled={busy} className={googleButton}>
+          <GoogleMark />
+          Continuar com Google
+        </button>
+      )}
+    </div>
+  );
+}
+
 const googleButton =
   "flex h-14 w-full items-center justify-center gap-2.5 rounded-2xl border border-line-strong bg-white text-base font-semibold text-ink disabled:opacity-50";
 
@@ -34,7 +72,7 @@ const googleButton =
  * Se a pessoa entrou só com apelido, liga o Google/e-mail à mesma conta: nada se perde.
  */
 export function AccountPanel({ onDone }: { onDone?: () => void }) {
-  const { isAnonymous, authError, clearAuthError, continueWithGoogle, sendEmailCode, verifyEmailCode } = useAuth();
+  const { isAnonymous, authError, clearAuthError, continueWithGoogle, googleIdToken, sendEmailCode, verifyEmailCode } = useAuth();
   const [step, setStep] = useState<"choose" | "email" | "code" | "exists">("choose");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -51,10 +89,35 @@ export function AccountPanel({ onDone }: { onDone?: () => void }) {
     };
   }, []);
 
+  // Último id token do Google: se ele já for de outro perfil, "Entrar com essa conta" usa o mesmo token.
+  const lastToken = useRef<{ token: string; nonce: string } | null>(null);
+
+  async function onGoogleToken(token: string, nonce: string) {
+    lastToken.current = { token, nonce };
+    setBusy(true);
+    setError(null);
+    clearAuthError();
+    const err = await googleIdToken(token, nonce);
+    setBusy(false);
+    if (err === "exists") return; // o aviso "já está ligada a outro perfil" aparece acima
+    if (err) return setError(err);
+    onDone?.();
+  }
+
   async function google(force = false) {
     setBusy(true);
     setError(null);
     clearAuthError();
+    if (force && lastToken.current) {
+      const err = await googleIdToken(lastToken.current.token, lastToken.current.nonce, true);
+      setBusy(false);
+      if (!err) {
+        clearAuthError();
+        return onDone?.();
+      }
+      // token vencido: segue pelo redirecionamento
+      setBusy(true);
+    }
     const err = await continueWithGoogle(force);
     if (err) {
       setError(err);
@@ -108,12 +171,7 @@ export function AccountPanel({ onDone }: { onDone?: () => void }) {
 
       {step === "choose" && (
         <>
-          {providers?.google && (
-            <button onClick={() => google()} disabled={busy} className={googleButton}>
-              <GoogleMark />
-              Continuar com Google
-            </button>
-          )}
+          {providers?.google && <GoogleButton busy={busy} onToken={onGoogleToken} onFallback={() => google()} />}
           {providers?.email !== false && (
             <button onClick={() => setStep("email")} disabled={busy || !providers} className={secondaryButton + " !h-14"}>
               Continuar com e-mail

@@ -39,6 +39,9 @@ type AuthValue = {
   clearAuthError: () => void;
   /** Google: liga à conta atual se ela for anônima; senão, entra. `forceSignIn` troca para a conta do Google. */
   continueWithGoogle: (forceSignIn?: boolean) => Promise<string | null>;
+  /** Botão do Google no próprio app (A1): liga à conta só-apelido ou entra, com o id token do Google.
+   * Devolve null (deu certo), "exists" (essa conta Google é de outro perfil) ou a mensagem de erro. */
+  googleIdToken: (idToken: string, rawNonce: string, forceSignIn?: boolean) => Promise<string | null>;
   /** Manda um código por e-mail: liga o e-mail à conta anônima, ou entra (cria a conta se não existir). */
   sendEmailCode: (email: string, forceSignIn?: boolean) => Promise<EmailCodeResult>;
   verifyEmailCode: (email: string, code: string, mode: "link" | "signin") => Promise<string | null>;
@@ -162,6 +165,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return "Não deu para abrir o Google agora. Tente de novo.";
   }, []);
 
+  const googleIdToken = useCallback<AuthValue["googleIdToken"]>(async (token, nonce, forceSignIn = false) => {
+    const supabase = getSupabase();
+    const current = (await supabase.auth.getSession()).data.session?.user ?? null;
+    const link = Boolean(current?.is_anonymous) && !forceSignIn;
+    const { data, error } = link
+      ? await supabase.auth.linkIdentity({ provider: "google", token, nonce })
+      : await supabase.auth.signInWithIdToken({ provider: "google", token, nonce });
+    if (error) {
+      if (error.code === "identity_already_exists") {
+        setAuthError("identity_already_exists");
+        return "exists";
+      }
+      if (error.code === "provider_disabled") return "O login com Google ainda não foi ativado.";
+      return "O Google não confirmou o login. Tente de novo.";
+    }
+    setAuthError(null);
+    if (data.user) await load(data.user);
+    track(link ? "account_saved" : "signed_in", { method: "google", via: "botao" });
+    return null;
+  }, [load]);
+
   const sendEmailCode = useCallback<AuthValue["sendEmailCode"]>(async (raw, forceSignIn = false) => {
     const email = raw.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok: false, error: "Confira o e-mail." };
@@ -199,11 +223,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInWithNickname,
       signOut,
       continueWithGoogle,
+      googleIdToken,
       sendEmailCode,
       verifyEmailCode,
       reloadProfile: () => load(state.user),
     }),
-    [state, authError, signInWithNickname, signOut, continueWithGoogle, sendEmailCode, verifyEmailCode, load],
+    [state, authError, signInWithNickname, signOut, continueWithGoogle, googleIdToken, sendEmailCode, verifyEmailCode, load],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
