@@ -8,7 +8,8 @@
  *   2) só depois ativar o CAPTCHA no Supabase (Authentication → Attack Protection) com a secret key.
  * Ao contrário, ninguém consegue entrar.
  */
-export const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+// Chave pública do widget "Rodizium" (Cloudflare Turnstile). A secret fica só no Supabase.
+export const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "0x4AAAAAAGXPBh_b_2AKwqCe";
 
 type Turnstile = {
   render: (el: HTMLElement, opts: Record<string, unknown>) => string;
