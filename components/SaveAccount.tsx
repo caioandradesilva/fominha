@@ -107,7 +107,7 @@ export function SaveAccountNudge({
     }
   }
 
-  const title = variant === "podium" ? "Guarde esse resultado" : myScore > 0 ? `Seus ${myScore} ${unit} estão só neste celular` : "Não perca seu placar";
+  const title = variant === "podium" ? "Guarde esse resultado" : myScore > 0 ? `${unit === "peças" ? "Suas" : "Seus"} ${myScore} ${unit} estão só neste celular` : "Não perca seu placar";
   const text =
     variant === "podium"
       ? "Salve sua conta para rever este rodízio, seus recordes e os próximos em qualquer celular."
