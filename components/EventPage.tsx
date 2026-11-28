@@ -13,6 +13,8 @@ import { entryPoints, isPoints, normalizeScoring, scoringSummary, unitLabel, typ
 import { LeaderCard, RankList } from "@/components/RankList";
 import { StoryButton } from "@/components/StoryShare";
 import { SaveAccountNudge } from "@/components/SaveAccount";
+import { EventTour } from "@/components/EventTour";
+import { reportError } from "@/lib/telemetry";
 import { EntryEditSheet, RecordsSheet, editNote, entryAction, type RecordEntry, type RecordsFilter } from "@/components/Records";
 import { PhotoSheet } from "@/components/PhotoSheet";
 import { getSupabase } from "@/lib/supabase/client";
@@ -264,6 +266,7 @@ function EventView({ profile }: { profile: Profile }) {
     if (error || !data) {
       setEntries((list) => list.filter((e) => e.id !== tempId));
       const label = error?.message.includes("rate_limited") ? "Calma! Muitos toques seguidos. Espere uns segundos." : "Não salvou. Confira a internet.";
+      if (!error?.message.includes("rate_limited")) reportError("toque", error?.message ?? "sem dados", { tipo });
       showToast({ label, failed: true });
       return;
     }
@@ -322,7 +325,7 @@ function EventView({ profile }: { profile: Profile }) {
 
       {event.status === "live" && (
         <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white">
-          <div className="mx-auto max-w-md px-4 pt-2.5">
+          <div className="mx-auto max-w-md px-4 pt-2.5" data-tour="pecas">
             <QuickPanel
               myCounts={myCounts}
               remaining={remaining}
@@ -339,7 +342,7 @@ function EventView({ profile }: { profile: Profile }) {
                 Encerrar
               </button>
             )}
-            <button onClick={() => setSheetOpen(true)} className={primaryButton + " gap-2"}>
+            <button onClick={() => setSheetOpen(true)} className={primaryButton + " gap-2"} data-tour="foto">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
                 <circle cx="12" cy="13.5" r="3.5" />
@@ -349,6 +352,8 @@ function EventView({ profile }: { profile: Profile }) {
           </div>
         </div>
       )}
+
+      <EventTour eventId={id} enabled={event.status === "live" && !entries.some((e) => e.user_id === profile.id)} />
 
       {boatSheet && (
         <BoatSheet

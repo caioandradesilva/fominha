@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { QUICK_PIECES } from "@/components/QuickPieces";
 import { avatarColor, primaryButton, secondaryButton } from "@/components/ui";
 import { isPoints, unitLabel, type Scoring } from "@/lib/scoring";
+import { reportError, track } from "@/lib/telemetry";
 
 type StoryScore = { userId: string; name: string; total: number; pieces: number };
 type StoryEvent = { name: string; restaurant_name: string | null; starts_at?: string | null };
@@ -224,8 +225,10 @@ export function StoryButton({
       const blob = await drawStory(variant, event, scores, scoring, entries);
       setFile(new File([blob], "rodizium-placar.png", { type: "image/png" }));
       setUrl(URL.createObjectURL(blob));
-    } catch {
+      track("story_open", { variant });
+    } catch (e) {
       setMsg("Não deu para gerar a imagem.");
+      reportError("stories", e, { variant });
     }
     setBusy(false);
   }
@@ -235,6 +238,7 @@ export function StoryButton({
     if (navigator.canShare?.({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: "Rodizium" });
+        track("story_share", { variant, via: "share" });
       } catch {
         /* a pessoa fechou o compartilhamento */
       }
@@ -250,6 +254,7 @@ export function StoryButton({
     a.href = url;
     a.download = "rodizium-placar.png";
     a.click();
+    track("story_share", { variant, via: "download" });
   }
 
   function close() {

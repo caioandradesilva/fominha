@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { track } from "@/lib/telemetry";
 
 const KEY = "rodizium:dica-instalar";
 
@@ -46,6 +47,10 @@ export function InstallHint() {
     return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, []);
 
+  useEffect(() => {
+    if (mode !== "none") track("install_shown", { mode });
+  }, [mode]);
+
   function dismiss() {
     try {
       window.localStorage.setItem(KEY, String(Date.now()));
@@ -58,7 +63,8 @@ export function InstallHint() {
   async function install() {
     if (!prompt) return;
     await prompt.prompt();
-    await prompt.userChoice.catch(() => undefined);
+    const choice = await prompt.userChoice.catch(() => undefined);
+    track("install_answer", { outcome: choice?.outcome ?? "?" });
     dismiss();
   }
 
@@ -93,7 +99,7 @@ export function InstallHint() {
             Instalar
           </button>
         )}
-        <button onClick={dismiss} className={`h-10 rounded-xl text-sm font-semibold ${mode === "ios" ? "bg-chip px-4 text-ink" : "px-4 text-muted"}`}>
+        <button onClick={() => { track("install_dismiss", { mode }); dismiss(); }} className={`h-10 rounded-xl text-sm font-semibold ${mode === "ios" ? "bg-chip px-4 text-ink" : "px-4 text-muted"}`}>
           {mode === "ios" ? "Entendi" : "Agora não"}
         </button>
       </div>

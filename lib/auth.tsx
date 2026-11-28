@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { getSupabase } from "@/lib/supabase/client";
+import { installTelemetry, track } from "@/lib/telemetry";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 
 export type Profile = {
@@ -71,7 +72,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq("id", user.id)
       .maybeSingle();
     if (mine === seq.current) setState({ loading: false, user, profile: data ?? null });
+    // Volta do Google: registra se ligou à conta só-apelido ou entrou (flag gravada antes de sair para o Google)
+    try {
+      const flag = window.sessionStorage.getItem("rodizium:google");
+      if (flag && !user.is_anonymous) {
+        window.sessionStorage.removeItem("rodizium:google");
+        track(flag === "link" ? "account_saved" : "signed_in", { method: "google", new_profile: !data });
+      }
+    } catch {
+      /* ignora */
+    }
   }, []);
+
+  useEffect(() => (hasSupabaseEnv ? installTelemetry() : undefined), []);
 
   useEffect(() => {
     if (!hasSupabaseEnv) return;
@@ -120,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error || !profile) return { ok: false, error: "Entrou, mas não salvou o apelido. Tente de novo." };
     seq.current++; // descarta qualquer leitura antiga em andamento
     setState({ loading: false, user, profile });
+    if (!current) track("signed_in", { method: "apelido" });
     return { ok: true, profile };
   }, []);
 
@@ -131,6 +145,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabase();
     const current = (await supabase.auth.getSession()).data.session?.user ?? null;
     const redirectTo = window.location.origin + window.location.pathname;
+    try {
+      window.sessionStorage.setItem("rodizium:google", current?.is_anonymous && !forceSignIn ? "link" : "signin");
+    } catch {
+      /* ignora */
+    }
     const { error } =
       current?.is_anonymous && !forceSignIn
         ? await supabase.auth.linkIdentity({ provider: "google", options: { redirectTo } })
@@ -164,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await getSupabase().auth.verifyOtp({ email, token, type: mode === "link" ? "email_change" : "email" });
     if (error) return error.code === "otp_expired" ? "Código errado ou vencido. Confira ou peça outro." : "Não deu certo. Confira o código.";
     if (data.user) await load(data.user);
+    track(mode === "link" ? "account_saved" : "signed_in", { method: "email" });
     return null;
   }, [load]);
 

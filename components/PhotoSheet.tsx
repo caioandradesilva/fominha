@@ -5,6 +5,7 @@ import { PieceArt, QUICK_PIECES } from "@/components/QuickPieces";
 import { primaryButton, secondaryButton } from "@/components/ui";
 import { agoLabel, findDuplicate, type Candidate } from "@/lib/duplicates";
 import { compressPhoto } from "@/lib/photo";
+import { reportError, track } from "@/lib/telemetry";
 import { getSupabase } from "@/lib/supabase/client";
 
 type AiResult = {
@@ -124,10 +125,14 @@ export function PhotoSheet({
         bytes: blob.size,
       };
       setAi(result);
+      track("photo_counted", { ms: result.tempos.total_ms, ia_ms: result.tempos.ia_ms, total: result.total, conf: result.confianca, sugestao: result.destino }, { eventId });
       setCounts(result.por_tipo);
       setDest(result.destino === "mesa" ? "mesa" : "meu");
     } catch (e) {
-      setAiFailed((e as Error).message || "erro");
+      const code = (e as Error).message || "erro";
+      setAiFailed(code);
+      track("photo_failed", { code }, { eventId });
+      if (!code.startsWith("ai:429")) reportError("foto", e, { eventId });
     }
     setStep("review");
   }
@@ -165,6 +170,7 @@ export function PhotoSheet({
   }, [dupPhoto]);
 
   function discardAsSame() {
+    track("dup_answer", { resposta: "mesma" }, { eventId });
     dropUpload();
     onClose();
   }
@@ -197,8 +203,14 @@ export function PhotoSheet({
     }
     if (err) {
       setBusy(false);
+      reportError("foto_salvar", err.message, { dest, eventId });
       return setError("Não salvou. Confira a internet e tente de novo.");
     }
+    track(
+      "photo_saved",
+      { dest, sugestao: ai?.destino ?? null, total, ia_total: ai?.total ?? null, ajustado: ai ? ai.total !== total : null, sem_foto: !photoPath },
+      { eventId },
+    );
     onSaved();
     onClose();
   }
@@ -318,7 +330,7 @@ export function PhotoSheet({
                   <button onClick={discardAsSame} className="h-11 flex-1 rounded-xl bg-ink text-sm font-semibold text-white">
                     É a mesma
                   </button>
-                  <button onClick={() => setDupOk(dup.id)} className="h-11 flex-1 rounded-xl border border-[#d9c48f] bg-white text-sm font-semibold text-ink">
+                  <button onClick={() => { setDupOk(dup.id); track("dup_answer", { resposta: "outra" }, { eventId }); }} className="h-11 flex-1 rounded-xl border border-[#d9c48f] bg-white text-sm font-semibold text-ink">
                     Chegou outra
                   </button>
                 </div>

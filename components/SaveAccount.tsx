@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AccountPanel } from "@/components/AccountPanel";
 import { useAuth } from "@/lib/auth";
+import { track } from "@/lib/telemetry";
 
 /** Janela "Salve sua conta" (Google ou e-mail), ligando à conta só-apelido. */
 export function SaveAccountSheet({ onClose, title = "Salve sua conta", text }: { onClose: () => void; title?: string; text?: string }) {
@@ -89,14 +90,21 @@ export function SaveAccountNudge({
     };
   }, [variant]);
 
-  if (!isAnonymous) return null;
-
   let show: boolean;
-  if (variant === "podium") show = !hidden;
+  if (!isAnonymous) show = false;
+  else if (variant === "podium") show = !hidden;
   else if (snooze.count === 0) show = myRegs >= FIRST_AT;
   else show = snooze.count < MAX_SHOWS && (myRegs - snooze.regs >= AGAIN_AFTER_REGS || (now > 0 && now - snooze.at >= AGAIN_AFTER_MS));
 
+  // conta cada vez que o convite aparece (uma vez por exibição)
+  useEffect(() => {
+    if (show) track("nudge_shown", { variant, vez: snooze.count + 1 }, { eventId });
+  }, [show, variant, snooze.count, eventId]);
+
+  if (!isAnonymous) return null;
+
   function later() {
+    track("nudge_later", { variant, vez: snooze.count + 1 }, { eventId });
     if (variant === "podium") return setHidden(true);
     const next = { count: snooze.count + 1, at: Date.now(), regs: myRegs };
     setSnooze(next);
@@ -125,7 +133,13 @@ export function SaveAccountNudge({
             </span>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setOpen(true)} className="h-10 flex-1 rounded-xl bg-ink text-sm font-semibold text-white">
+            <button
+              onClick={() => {
+                track("nudge_click", { variant, vez: snooze.count + 1 }, { eventId });
+                setOpen(true);
+              }}
+              className="h-10 flex-1 rounded-xl bg-ink text-sm font-semibold text-white"
+            >
               Salvar conta
             </button>
             <button onClick={later} className="h-10 rounded-xl px-4 text-sm font-semibold text-[#5c3e00]">

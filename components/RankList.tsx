@@ -71,7 +71,7 @@ export function RankList({
   }, [order]);
 
   return (
-    <div className="rounded-2xl border border-line bg-white px-4 py-1">
+    <div className="rounded-2xl border border-line bg-white px-4 py-1" data-tour="ranking">
       {scores.map((s, i) => (
         <button
           key={s.userId}
