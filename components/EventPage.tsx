@@ -12,6 +12,7 @@ import type { Candidate } from "@/lib/duplicates";
 import { entryPoints, isPoints, normalizeScoring, scoringSummary, unitLabel, type Scoring } from "@/lib/scoring";
 import { LeaderCard, RankList } from "@/components/RankList";
 import { StoryButton } from "@/components/StoryShare";
+import { SaveAccountNudge } from "@/components/SaveAccount";
 import { EntryEditSheet, RecordsSheet, editNote, entryAction, type RecordEntry, type RecordsFilter } from "@/components/Records";
 import { PhotoSheet } from "@/components/PhotoSheet";
 import { getSupabase } from "@/lib/supabase/client";
@@ -504,6 +505,13 @@ function Live({
       <RankList scores={scores} meId={meId} onPick={(uid) => onOpenRecords(uid === meId ? "me" : uid)} />
       {isPoints(scoring) && <p className="-mt-2 text-xs text-muted">Pontuação do grupo: {scoringSummary(scoring)}</p>}
       {hasPlates && <StoryButton variant="parcial" event={event} scores={scores} scoring={scoring} entries={entries} />}
+      <SaveAccountNudge
+        eventId={event.id}
+        variant="live"
+        myRegs={entries.filter((e) => e.user_id === meId).length}
+        myScore={scores.find((x) => x.userId === meId)?.total ?? 0}
+        unit={isPoints(scoring) ? "pontos" : "peças"}
+      />
 
       {boats.length > 0 && (
         <section className="flex flex-col gap-2">
@@ -657,6 +665,13 @@ function Podium({
       )}
 
       <StoryButton variant="final" event={event} scores={scores} scoring={scoring} entries={entries} />
+      <SaveAccountNudge
+        eventId={event.id}
+        variant="podium"
+        myRegs={0}
+        myScore={0}
+        unit={isPoints(scoring) ? "pontos" : "peças"}
+      />
       <button onClick={() => onOpenRecords(isAdmin ? "all" : "me")} className={secondaryButton}>
         {isAdmin ? "Conferir e corrigir registros" : "Ver meus registros"}
       </button>

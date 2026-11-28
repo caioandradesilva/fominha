@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AccountPanel } from "@/components/AccountPanel";
+import { SaveAccountSheet } from "@/components/SaveAccount";
 import { PlateMark, Wordmark } from "@/components/Logo";
 import { Screen, primaryButton } from "@/components/ui";
 import { useAuth, type Profile } from "@/lib/auth";
@@ -77,25 +77,7 @@ export function Home({ profile }: { profile: Profile }) {
         </button>
       )}
 
-      {accountOpen && (
-        <div className="fixed inset-0 z-50 flex items-end bg-[rgba(26,23,20,0.55)]" onClick={closeAccount}>
-          <div
-            role="dialog"
-            aria-label="Salvar conta"
-            className="mx-auto flex w-full max-w-md flex-col gap-4 rounded-t-3xl bg-cream px-5 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mx-auto h-1.5 w-10 shrink-0 rounded-full bg-line-strong" />
-            <div className="flex flex-col gap-1">
-              <h2 className="font-display text-2xl font-extrabold">Salve sua conta</h2>
-              <p className="text-sm text-muted">
-                Seu apelido, grupos e registros continuam os mesmos. Depois é só entrar com a mesma conta em qualquer celular.
-              </p>
-            </div>
-            <AccountPanel onDone={closeAccount} />
-          </div>
-        </div>
-      )}
+      {accountOpen && <SaveAccountSheet onClose={closeAccount} />}
 
       {groups === null && <p className="text-muted">Carregando…</p>}
 

@@ -22,10 +22,15 @@ export function timeAgo(iso: string): string {
 }
 
 /** Valor padrão para <input type="datetime-local">: hoje às 20h (ou amanhã, se já passou). */
+/**
+ * Data/hora sugerida ao criar um evento. Quase sempre o evento é criado na hora, na mesa:
+ * a partir das 17h sugere agora (arredondado para baixo em 15 min); antes disso, hoje às 20h.
+ * Nunca joga para o dia seguinte (bug do Rodízio #1 e #2).
+ */
 export function defaultEventLocal(): string {
   const d = new Date();
-  if (d.getHours() >= 20) d.setDate(d.getDate() + 1);
-  d.setHours(20, 0, 0, 0);
+  if (d.getHours() >= 17) d.setMinutes(Math.floor(d.getMinutes() / 15) * 15, 0, 0);
+  else d.setHours(20, 0, 0, 0);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
