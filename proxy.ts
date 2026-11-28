@@ -5,15 +5,21 @@ import { hasSupabaseEnv, supabaseKey, supabaseUrl } from "@/lib/supabase/env";
 // Dois ambientes no mesmo projeto:
 // - rodizium.com.br: só a landing de lista de espera (qualquer outra rota volta para a raiz;
 //   nenhuma rota do app, nem a API de contagem, responde nesse domínio).
-// - fominha-umber.vercel.app (e qualquer outro host): o MVP, sem a landing.
+// - app.rodizium.com.br (e qualquer outro host): o MVP, sem a landing.
+// - fominha-umber.vercel.app: endereço antigo do MVP; redireciona para app.rodizium.com.br
+//   mantendo o caminho (links de convite antigos continuam funcionando).
 const LANDING_HOSTS = new Set(["rodizium.com.br", "www.rodizium.com.br"]);
 const LANDING_ROUTE = "/lista";
 /** Páginas públicas que abrem nos dois domínios (exigidas pelo Google para o login). */
 const PUBLIC_PAGES = new Set(["/privacidade", "/termos"]);
+const OLD_APP_HOST = "fominha-umber.vercel.app";
+const APP_ORIGIN = "https://app.rodizium.com.br";
 
 export async function proxy(request: NextRequest) {
   const host = request.headers.get("host")?.split(":")[0] ?? "";
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
+
+  if (host === OLD_APP_HOST) return NextResponse.redirect(`${APP_ORIGIN}${pathname}${search}`, 308);
 
   if (PUBLIC_PAGES.has(pathname)) return NextResponse.next();
 
